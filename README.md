@@ -14,19 +14,22 @@ Alias: `/fv`
 
 | Command | What it does |
 |---|---|
-| `/farview status` | Your current settings and measured connection |
-| `/farview on` / `off` | Toggle the extended view for yourself |
-| `/farview distance <4..32>` | Chunk radius you want |
-| `/farview rate auto` | Let the plugin adapt the send rate |
-| `/farview rate <kbps>` | Pin a send rate; snaps to the nearest configured step |
+| `/farview status [player]` | Current settings and measured connection |
+| `/farview on [player]` / `off [player]` | Toggle the extended view |
+| `/farview distance <4..32> [player]` | Chunk radius |
+| `/farview rate auto [player]` | Let the plugin adapt the send rate |
+| `/farview rate <kbps> [player]` | Pin a send rate; snaps to the nearest configured step |
 | `/farview reload` | Reload config and restart sessions |
+
+The `[player]` argument targets someone else and needs `farview.others`; the console must always name a player.
 
 ## Permissions
 
-| Permission | Grants |
-|---|---|
-| `farview.use` | All player commands |
-| `farview.reload` | `/farview reload` |
+| Permission | Grants | Default |
+|---|---|---|
+| `farview.use` | All player commands on yourself | everyone |
+| `farview.others` | The `[player]` argument, for admins and menus | op |
+| `farview.reload` | `/farview reload` | op |
 
 ## Config
 

@@ -1,4 +1,5 @@
 import xyz.jpenilla.resourcefactory.bukkit.BukkitPluginYaml
+import xyz.jpenilla.resourcefactory.bukkit.Permission
 
 plugins {
     id("java")
@@ -25,6 +26,11 @@ paperPluginYaml {
     load = BukkitPluginYaml.PluginLoadOrder.STARTUP
     foliaSupported = true
     authors.addAll("kidofcubes")
+    permissions {
+        register("farview.use") { default = Permission.Default.TRUE }
+        register("farview.others") { default = Permission.Default.OP }
+        register("farview.reload") { default = Permission.Default.OP }
+    }
 }
 
 java {

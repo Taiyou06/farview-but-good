@@ -3,7 +3,6 @@ package net.gensokyoreimagined.farview.region;
 import java.util.Arrays;
 
 final class PaletteCache<T> {
-
     private static final int SLOTS = 4096;
 
     private final byte[][] keys = new byte[SLOTS][];
@@ -17,7 +16,6 @@ final class PaletteCache<T> {
         return hash;
     }
 
-    /** Null when those bytes have not been resolved on this thread yet. */
     @SuppressWarnings("unchecked")
     T get(int hash, byte[] bytes, int start, int length) {
         int slot = hash & (SLOTS - 1);

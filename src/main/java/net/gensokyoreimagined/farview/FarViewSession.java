@@ -12,21 +12,16 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ChunkTrackingView;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import org.bukkit.entity.Player;
 
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Every field except the atomics is event-loop only. Callers from the main thread or the
- * IO pool must go through {@link #execute(Runnable)}.
- */
 final class FarViewSession {
-
     private static final Map<Integer, long[]> SPIRALS = new ConcurrentHashMap<>();
 
-    private final UUID playerUuid;
+    private final Player player;
     private final Channel channel;
     private final FarViewPlugin plugin;
 
@@ -53,11 +48,10 @@ final class FarViewSession {
     private boolean centerKnown;
     private boolean needsRebuild;
 
-
-    FarViewSession(UUID playerUuid, Channel channel, FarViewPlugin plugin,
+    FarViewSession(Player player, Channel channel, FarViewPlugin plugin,
                           ResourceKey<Level> dimension, int serverRadius,
                           FarViewSettings.RatePolicy ratePolicy) {
-        this.playerUuid = playerUuid;
+        this.player = player;
         this.channel = channel;
         this.plugin = plugin;
         this.dimension = dimension;
@@ -123,7 +117,6 @@ final class FarViewSession {
         attempted.remove(key);
     }
 
-    /** True when the drop should be swallowed so our fake chunk survives. */
     public boolean onForget(ChunkPos pos) {
         long key = pos.pack();
         serverChunks.remove(key);
@@ -136,11 +129,10 @@ final class FarViewSession {
         return true;
     }
 
-    /** The client rebuilds its whole level on any respawn, not just a dimension change. */
     public void onRespawn(ResourceKey<Level> newDimension) {
         dimension = newDimension;
         resetTracking();
-        plugin.reapply(playerUuid);
+        plugin.reapply(player);
     }
 
     public void pump(FarViewSettings settings) {

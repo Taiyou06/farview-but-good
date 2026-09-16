@@ -5,9 +5,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 
-/** {@code addFirst}, so it counts after compression and encryption: what the link sees. */
 final class FarViewWireMeter extends ChannelOutboundHandlerAdapter {
-
     public static final String NAME = "gensou_farview_wire";
 
     private final FarViewSession session;

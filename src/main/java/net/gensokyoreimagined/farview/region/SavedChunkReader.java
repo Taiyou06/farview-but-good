@@ -27,9 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-/** One instance per IO thread; a chunk is only good until the same thread reads the next one. */
 final class SavedChunkReader {
-
     private static final ThreadLocal<SavedChunkReader> SCRATCH = ThreadLocal.withInitial(SavedChunkReader::new);
 
     private static final byte[] STATUS = key("Status");
@@ -150,7 +148,6 @@ final class SavedChunkReader {
     private void readStatus() throws IOException {
         int length = in.readUnsignedShort();
         int at = in.take(length);
-        // NbtUtils parses this as an Identifier, where a bare path takes the default namespace.
         chunk.full(in.equalsAt(STATUS_FULL, at, length) || in.equalsAt(STATUS_FULL_BARE, at, length));
     }
 
@@ -214,7 +211,6 @@ final class SavedChunkReader {
         chunk.placeSection(section, y);
     }
 
-    /** Starlight never saves an initialised nibble at another size. */
     private int takeLightLayer() throws IOException {
         int length = in.readInt();
         int at = in.take(length);
@@ -296,7 +292,6 @@ final class SavedChunkReader {
         return resolved;
     }
 
-    /** As lenient as {@code NbtUtils#readBlockState}: unknown name gives the default, bad property value is skipped. */
     private BlockState resolveBlockState() throws IOException {
         String name = null;
         int propertiesAt = -1;
@@ -314,7 +309,6 @@ final class SavedChunkReader {
         }
 
         Identifier id = name == null ? null : Identifier.tryParse(name);
-        // getValue would answer air for an unknown name, since blocks are a defaulted registry.
         Block block = id == null ? null : BuiltInRegistries.BLOCK.getOptional(id).orElse(null);
         if (block == null) return defaultBlockState;
 
@@ -363,8 +357,6 @@ final class SavedChunkReader {
         return resolved;
     }
 
-    // The region file holds the full save tag, so an unfiltered pass-through would ship container
-    // inventories to the client. A rejected entity is skipped where it lies and never becomes a tag.
     private void readBlockEntities() throws IOException {
         int element = in.readByte();
         int count = in.readInt();
@@ -385,7 +377,6 @@ final class SavedChunkReader {
         }
     }
 
-    /** The id is not always the first key. */
     private boolean allowedBlockEntity() throws IOException {
         int type;
         while ((type = in.readByte()) != Tag.TAG_END) {
@@ -471,7 +462,6 @@ final class SavedChunkReader {
         if (++depth > MAX_DEPTH) throw new IOException("saved chunk nests deeper than " + MAX_DEPTH);
     }
 
-    /** ASCII only, where latin-1 and modified UTF-8 are the same bytes. */
     private static byte[] key(String name) {
         return name.getBytes(StandardCharsets.ISO_8859_1);
     }

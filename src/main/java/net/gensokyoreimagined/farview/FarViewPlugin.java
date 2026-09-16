@@ -35,14 +35,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
-/**
- * Serves terrain past the server's real view distance by reading region files off
- * disk and writing chunk packets straight into the player's netty pipeline, without
- * the server loading, ticking, or generating any of it. Opt-in per player.
- */
 public final class FarViewPlugin extends JavaPlugin {
-
-    /** Own scheduler rather than the server tick, so a TPS drop does not throttle the network. */
     private static final long TICK_MS = 50L;
 
     private final Map<UUID, FarViewSession> sessions = new ConcurrentHashMap<>();
@@ -89,7 +82,7 @@ public final class FarViewPlugin extends JavaPlugin {
     }
 
     void reload() {
-        Bukkit.getScheduler().runTask(this, () -> {
+        Bukkit.getGlobalRegionScheduler().run(this, task -> {
             stop();
             start();
         });
@@ -123,8 +116,7 @@ public final class FarViewPlugin extends JavaPlugin {
         this.listener = new FarViewListener(this);
         Bukkit.getPluginManager().registerEvents(listener, this);
 
-        // load=STARTUP: worlds do not exist yet on the first enable.
-        Bukkit.getScheduler().runTask(this, this::initWorlds);
+        Bukkit.getGlobalRegionScheduler().run(this, task -> initWorlds());
     }
 
     private void stop() {
@@ -159,7 +151,9 @@ public final class FarViewPlugin extends JavaPlugin {
                 + " exist; no fake chunks will be sent");
             return;
         }
-        for (Player player : Bukkit.getOnlinePlayers()) attach(player);
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.getScheduler().run(this, task -> attach(player), null);
+        }
     }
 
     void attach(Player player) {
@@ -173,16 +167,13 @@ public final class FarViewPlugin extends JavaPlugin {
         FarViewInjector.uninject(player);
     }
 
-    void reapply(UUID playerUuid) {
-        Bukkit.getScheduler().runTask(this, () -> {
-            Player player = Bukkit.getPlayer(playerUuid);
-            FarViewSession session = sessions.get(playerUuid);
-            if (player == null || session == null) return;
-            applyPreferences(player, session);
-        });
+    void reapply(Player player) {
+        player.getScheduler().run(this, task -> {
+            FarViewSession session = sessions.get(player.getUniqueId());
+            if (session != null) applyPreferences(player, session);
+        }, null);
     }
 
-    /** Null until the player has a session. */
     ConnectionQuality.Snapshot connectionSnapshot(Player player) {
         FarViewSession session = sessions.get(player.getUniqueId());
         return session == null ? null : session.quality().snapshot();
@@ -213,7 +204,6 @@ public final class FarViewPlugin extends JavaPlugin {
             preferences.distance(player.getUniqueId(), settings.defaultViewDistance())));
     }
 
-    /** The server's own sender sends one ring past the client's value; matching it leaves no seam. */
     private static int clampToClient(Player player, int radius) {
         int client = player.getClientViewDistance();
         return client <= 0 ? radius : Math.min(radius, client + 1);
@@ -251,7 +241,6 @@ public final class FarViewPlugin extends JavaPlugin {
             if (packet != null) session.sendChunk(packet);
 
         } catch (UncheckedIOException io) {
-            // A region file mid-save reads as garbage, not corruption.
             logger.fine("region read failed for " + ChunkPos.getX(chunkKey)
                 + "," + ChunkPos.getZ(chunkKey) + ": " + io.getMessage());
         } catch (Throwable t) {

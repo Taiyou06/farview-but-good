@@ -5,9 +5,7 @@ import io.netty.channel.Channel;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** RTT fields are event-loop only; counters crossed by the IO pool are atomic; {@link #snapshot()} is the only main-thread read. */
 final class ConnectionQuality {
-
     public record Snapshot(int pingMs, int jitterMs, int sendRateKbps, int budgetKbps,
                            boolean auto, boolean congested) {}
 
@@ -67,7 +65,6 @@ final class ConnectionQuality {
     private final AtomicInteger chunkWindowCount = new AtomicInteger();
     private volatile double wireBytesPerChunk = INITIAL_WIRE_BYTES_PER_CHUNK;
 
-    /** Ping of -1 means no round-trip sample has landed yet; a local connection reads 0ms. */
     private volatile Snapshot snapshot = new Snapshot(-1, 0, 0, 0, true, false);
 
     public ConnectionQuality(Channel channel, FarViewSettings.RatePolicy policy) {
@@ -210,7 +207,6 @@ final class ConnectionQuality {
             wireBytesPerChunk += ((double) wire / chunks - wireBytesPerChunk) * CHUNK_SIZE_WEIGHT;
         }
 
-        // BBR app-limited rule: a window that never ran dry, or was frozen by congestion, did not measure the link.
         boolean qualifies = windowLimited && !windowCongested;
         windowLimited = false;
         windowCongested = false;

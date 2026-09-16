@@ -11,13 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
-/**
- * NMS {@code RegionFile} opens READ+WRITE and Paper's {@code recalculateHeader()} rewrites the file,
- * so a second owner on a live world can corrupt it; this opens READ only. The server relocates
- * sectors on save, so the offset table is re-read per call. A read racing a save yields garbage.
- */
 public final class RegionReader implements AutoCloseable {
-
     private static final int SECTOR_BYTES = 4096;
     private static final int HEADER_SECTORS = 2;
     private static final int EXTERNAL_STREAM_FLAG = 0x80;
@@ -38,14 +32,12 @@ public final class RegionReader implements AutoCloseable {
         this.channel = channel;
     }
 
-    /** Null when the region file does not exist. */
     public static RegionReader open(Path regionDir, int regionX, int regionZ) throws IOException {
         Path file = regionDir.resolve("r." + regionX + "." + regionZ + ".mca");
         if (!Files.isRegularFile(file)) return null;
         return new RegionReader(regionDir, FileChannel.open(file, StandardOpenOption.READ));
     }
 
-    /** Null when the chunk is absent or unreadable. */
     public SavedChunk read(int chunkX, int chunkZ, SavedChunkReader into) throws IOException {
         int slot = (chunkX & 31) + (chunkZ & 31) * 32;
 
@@ -65,13 +57,11 @@ public final class RegionReader implements AutoCloseable {
         byte versionId = header.get(4);
         if (length <= 0) return null;
 
-        // Spigot stores oversized chunks with a 255 sector count and the real length at the sector head.
         if (sectorCount == 255) {
             sectorCount = (length + 4) / SECTOR_BYTES + 1;
         }
         if (sectorCount <= 0 || sectorCount > MAX_SECTORS) return null;
 
-        // versionId is a byte, so masking with ~0x80 would sign-extend into a negative id.
         RegionFileVersion version = RegionFileVersion.fromId(versionId & VERSION_ID_MASK);
         if (version == null) return null;
 

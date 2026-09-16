@@ -5,7 +5,6 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import net.minecraft.network.protocol.common.ServerboundKeepAlivePacket;
 
 final class FarViewInboundHandler extends ChannelInboundHandlerAdapter {
-
     public static final String NAME = "gensou_farview_in";
 
     private final FarViewSession session;

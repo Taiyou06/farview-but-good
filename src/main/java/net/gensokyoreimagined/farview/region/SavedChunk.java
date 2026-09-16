@@ -11,12 +11,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Offsets into {@link #bytes()}. One per IO thread, refilled per chunk: nothing here outlives the packet built from it. */
 public final class SavedChunk {
-
     public static final int DATA_LAYER_BYTES = 2048;
 
-    /** A count of -1 means the section left that palette out, as an all-air one does. */
     public static final class Section {
         int blockPaletteFrom;
         int blockPaletteCount;
@@ -57,7 +54,6 @@ public final class SavedChunk {
         public int skyLightState() { return skyLightState; }
         public int blockLightState() { return blockLightState; }
 
-        /** -1 when the layer is absent, or saved at a length that is not a data layer. */
         public int skyLightAt() { return skyLightAt; }
         public int blockLightAt() { return blockLightAt; }
     }
@@ -94,7 +90,6 @@ public final class SavedChunk {
     public Holder<Biome>[] biomePalette() { return biomePalette; }
     public List<CompoundTag> blockEntities() { return blockEntities; }
 
-    /** Null when the chunk saved no section at that Y. */
     public Section section(int y) {
         int index = y - firstY;
         return index >= 0 && index < byY.length ? byY[index] : null;
@@ -104,7 +99,6 @@ public final class SavedChunk {
         return lightOn && starlightVersion == SaveUtil.STARLIGHT_LIGHT_VERSION;
     }
 
-    /** {@code firstY} is the lowest section the packet asks about, one below the world's own. */
     void reset(byte[] bytes, int firstY, int sections) {
         this.bytes = bytes;
         this.full = false;

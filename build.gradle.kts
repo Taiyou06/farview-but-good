@@ -23,6 +23,7 @@ paperPluginYaml {
     main = "net.gensokyoreimagined.farview.FarViewPlugin"
     apiVersion = "26.2"
     load = BukkitPluginYaml.PluginLoadOrder.STARTUP
+    foliaSupported = true
     authors.addAll("kidofcubes")
 }
 

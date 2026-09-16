@@ -13,7 +13,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.LongFunction;
 
 public final class FakeChunkCache {
-
     private record Key(ResourceKey<Level> dimension, long chunkKey) {}
 
     private final Cache<Key, ClientboundLevelChunkWithLightPacket> cache;
@@ -26,7 +25,6 @@ public final class FakeChunkCache {
             .build();
     }
 
-    /** Returns null when the loader declines to build a packet for this chunk. */
     public ClientboundLevelChunkWithLightPacket get(ResourceKey<Level> dimension, long chunkKey,
                                                     LongFunction<ClientboundLevelChunkWithLightPacket> loader) {
         if (cache == null) return loader.apply(chunkKey);
@@ -38,7 +36,6 @@ public final class FakeChunkCache {
     }
 
     private static int weigh(ClientboundLevelChunkWithLightPacket packet) {
-        // getReadBuffer wraps the packet's array unpooled and without copying; vanilla never releases it either.
         FriendlyByteBuf buffer = packet.getChunkData().getReadBuffer();
         ClientboundLightUpdatePacketData light = packet.getLightData();
         return buffer.readableBytes()

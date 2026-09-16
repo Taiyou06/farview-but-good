@@ -13,7 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
 
 final class FarViewPreferences {
-
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final TypeToken<Map<UUID, Prefs>> TYPE = new TypeToken<>() {};
 

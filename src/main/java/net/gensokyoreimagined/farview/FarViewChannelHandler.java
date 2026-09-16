@@ -11,9 +11,7 @@ import net.minecraft.network.protocol.game.ClientboundRespawnPacket;
 import net.minecraft.network.protocol.game.ClientboundSetChunkCacheCenterPacket;
 import net.minecraft.network.protocol.game.ClientboundSetChunkCacheRadiusPacket;
 
-/** Packets written from this handler's own context skip {@link #write}. */
 final class FarViewChannelHandler extends ChannelDuplexHandler {
-
     public static final String NAME = "gensou_farview";
 
     private final FarViewSession session;

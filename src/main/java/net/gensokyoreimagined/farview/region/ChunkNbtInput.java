@@ -15,7 +15,6 @@ import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 
 final class ChunkNbtInput implements DataInput {
-
     private static final int INITIAL_CAPACITY = 128 * 1024;
     private static final int MAX_RETAINED_CAPACITY = 4 * 1024 * 1024;
 
@@ -194,7 +193,6 @@ final class ChunkNbtInput implements DataInput {
         int hash = length;
         for (int i = 0; i < length; i++) {
             byte b = bytes[start + i];
-            // Modified UTF-8 never emits a zero byte.
             if (b <= 0) return -1;
             hash = hash * 31 + b;
         }
@@ -210,7 +208,6 @@ final class ChunkNbtInput implements DataInput {
     }
 
     private String decode(int start, int length) throws IOException {
-        // Modified UTF-8 is not the JDK's UTF_8 (nul, supplementary planes).
         return new DataInputStream(new ByteArrayInputStream(bytes, start - 2, length + 2)).readUTF();
     }
 }

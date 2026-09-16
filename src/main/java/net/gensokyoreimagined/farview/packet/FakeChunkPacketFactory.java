@@ -33,11 +33,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
-/** The packet's buffer constructor is private, hence the hand-written wire form fed through {@code STREAM_CODEC}. */
 public final class FakeChunkPacketFactory {
-
-    // Starlight's SWMRNibbleArray init states. Private there, and the mapping onto
-    // the packet's masks has to match SWMRNibbleArray#toVanillaNibble exactly.
     private static final int LIGHT_STATE_NULL = 0;
     private static final int LIGHT_STATE_INIT = 2;
     private static final int LIGHT_STATE_HIDDEN = 3;
@@ -68,7 +64,6 @@ public final class FakeChunkPacketFactory {
 
     private FakeChunkPacketFactory() {}
 
-    /** Throws on malformed saved data, which the caller logs and skips. */
     public static ClientboundLevelChunkWithLightPacket build(WorldRegionSource source, FarViewSettings settings,
                                                              int chunkX, int chunkZ, SavedChunk saved) {
         RegistryFriendlyByteBuf out = new RegistryFriendlyByteBuf(scratch(PACKET_SCRATCH), source.registryAccess());
@@ -78,7 +73,6 @@ public final class FakeChunkPacketFactory {
         writeLightData(out, source, saved);
 
         ClientboundLevelChunkWithLightPacket packet = ClientboundLevelChunkWithLightPacket.STREAM_CODEC.decode(out);
-        // Decoding leaves Paper's anti-xray ready flag false.
         packet.setReady(true);
         return packet;
     }
@@ -140,7 +134,6 @@ public final class FakeChunkPacketFactory {
             MIN_BIOME_BITS, MAX_LOCAL_BIOME_BITS);
     }
 
-    /** {@code PalettedContainer#read} sizes storage from the bit width alone; a mismatch reads into the next section. */
     private static <T> void writeContainer(FriendlyByteBuf out, Strategy<T> strategy, T defaultValue,
                                    T[] palette, int from, int count,
                                    byte[] bytes, int dataAt, int dataWords,
@@ -177,7 +170,6 @@ public final class FakeChunkPacketFactory {
         out.writeVarInt(strategy.globalMap().getId(value));
     }
 
-    /** Must visit exactly the entries {@code SimpleBitStorage#getAll} visits: 64/bits per long, low bits first, stopping at size. */
     private static long countBlocks(BlockState[] palette, int from, int count, byte[] bytes, int dataAt, int dataWords,
                             int bits, int entryCount) {
         if (bits == 0) return tally(palette[from], entryCount, 0L);
@@ -331,7 +323,6 @@ public final class FakeChunkPacketFactory {
     }
 
     private static void writeMask(FriendlyByteBuf out, long[] masks, int base, int words) {
-        // BitSet#toLongArray drops trailing empty words.
         int length = words;
         while (length > 0 && masks[base + length - 1] == 0L) length--;
         out.writeVarInt(length);

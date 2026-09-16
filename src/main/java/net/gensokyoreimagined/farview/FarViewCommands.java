@@ -19,7 +19,6 @@ import java.util.UUID;
 import java.util.function.BiConsumer;
 
 final class FarViewCommands {
-
     private FarViewCommands() {}
 
     static void register(FarViewPlugin plugin, PaperCommandManager<CommandSourceStack> cmd) {
@@ -34,7 +33,7 @@ final class FarViewCommands {
             .literal("on")
             .handler(player(plugin, (player, ctx) -> {
                 plugin.preferences().setEnabled(player.getUniqueId(), true);
-                plugin.reapply(player.getUniqueId());
+                plugin.reapply(player);
                 player.sendMessage(Component.text("Extended view distance on.", NamedTextColor.GREEN));
             })));
 
@@ -42,7 +41,7 @@ final class FarViewCommands {
             .literal("off")
             .handler(player(plugin, (player, ctx) -> {
                 plugin.preferences().setEnabled(player.getUniqueId(), false);
-                plugin.reapply(player.getUniqueId());
+                plugin.reapply(player);
                 player.sendMessage(Component.text("Extended view distance off.", NamedTextColor.YELLOW));
             })));
 
@@ -53,7 +52,7 @@ final class FarViewCommands {
             .handler(player(plugin, (player, ctx) -> {
                 int distance = plugin.settings().clampViewDistance(ctx.get("chunks"));
                 plugin.preferences().setDistance(player.getUniqueId(), distance);
-                plugin.reapply(player.getUniqueId());
+                plugin.reapply(player);
                 player.sendMessage(Component.text("View distance set to " + distance + " chunks.", NamedTextColor.GREEN));
             })));
 
@@ -61,7 +60,7 @@ final class FarViewCommands {
             .literal("rate").literal("auto")
             .handler(player(plugin, (player, ctx) -> {
                 plugin.preferences().setAutoRate(player.getUniqueId(), true);
-                plugin.reapply(player.getUniqueId());
+                plugin.reapply(player);
                 player.sendMessage(Component.text("Send rate set to auto.", NamedTextColor.GREEN));
             })));
 
@@ -76,7 +75,7 @@ final class FarViewCommands {
                 UUID id = player.getUniqueId();
                 plugin.preferences().setAutoRate(id, false);
                 plugin.preferences().setRateCapKbps(id, kbps);
-                plugin.reapply(id);
+                plugin.reapply(player);
                 player.sendMessage(Component.text("Send rate pinned to " + formatRate(kbps) + ".", NamedTextColor.GREEN));
             })));
 

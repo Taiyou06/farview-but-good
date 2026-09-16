@@ -14,8 +14,6 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
                               long cacheMaxBytes, long cacheExpireSeconds, int regionReaderCache,
                               boolean requireSavedLight, boolean debug, RatePolicy rate,
                               BlockEntityPolicy blockEntities) {
-
-    /** The vanilla client clamps the server-sent chunk cache radius; anything above this is wasted disk reads. */
     public static final int CLIENT_MAX_VIEW_DISTANCE = 32;
     public static final int MIN_VIEW_DISTANCE = 4;
 
@@ -61,7 +59,6 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
         private Defaults() {}
     }
 
-    /** {@code ladder} holds only the steps within min..max, sorted and distinct, never empty. */
     public record RatePolicy(boolean auto, int minKbps, int maxKbps, int defaultKbps,
                              int increaseKbpsPerSecond, double spikeMultiplier, int jitterThresholdMs,
                              int[] ladder) {

@@ -18,7 +18,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 public final class WorldRegionSource implements AutoCloseable {
-
     private final ResourceKey<Level> dimension;
     private final Path regionDir;
     private final int minSectionY;
@@ -50,7 +49,6 @@ public final class WorldRegionSource implements AutoCloseable {
     public PalettedContainerFactory containerFactory() { return containerFactory; }
     public RegistryAccess registryAccess() { return registryAccess; }
 
-    /** Null when never generated or saved. The result is overwritten by this thread's next read. */
     public SavedChunk readChunk(int chunkX, int chunkZ, FarViewSettings.BlockEntityPolicy blockEntities)
         throws IOException {
         RegionReader reader = reader(chunkX >> 5, chunkZ >> 5);
@@ -61,7 +59,6 @@ public final class WorldRegionSource implements AutoCloseable {
         return reader.read(chunkX, chunkZ, into);
     }
 
-    // FileChannel positional reads are thread-safe, so only the cache itself needs guarding.
     private synchronized RegionReader reader(int regionX, int regionZ) throws IOException {
         long key = ChunkPos.pack(regionX, regionZ);
         RegionReader cached = readers.getAndMoveToLast(key);

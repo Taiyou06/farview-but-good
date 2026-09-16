@@ -31,6 +31,24 @@ The `[player]` argument targets someone else and needs `farview.others`; the con
 | `farview.others` | The `[player]` argument, for admins and menus | op |
 | `farview.reload` | `/farview reload` | op |
 
+## Placeholders
+
+PlaceholderAPI: `%farview_<key>%`. MythicMobs: `<caster.farview.<key>>`, `<target.farview.<key>>`, `<trigger.farview.<key>>`, also `parent` and `owner` scopes (empty when the entity is not a player). Both hook automatically when the plugin is present.
+
+| Key | Value |
+|---|---|
+| `enabled` | `true`/`false`, the player's own toggle |
+| `available` | `true`/`false`, whether their world is served |
+| `distance` (or `dist`) | chosen radius in chunks |
+| `client_distance` | the client's render distance as seen by the server |
+| `rate` | `auto` or the pinned cap in KiB/s |
+| `rate_mbps` | same, formatted in Mbps |
+| `ping`, `jitter` | milliseconds as measured from keepalives; ping is `-1` until measured |
+| `sending`, `budget` | current send rate and budget in KiB/s |
+| `sending_mbps`, `budget_mbps` | same, formatted in Mbps |
+| `ratio` | sending as a percentage of budget |
+| `quality` | `measuring`, `good`, `unstable`, `distant` or `saturated` |
+
 ## Config
 
 `plugins/farview/farview.conf`, seeded with comments on first start. Player choices are stored in `plugins/farview/preferences.json`.

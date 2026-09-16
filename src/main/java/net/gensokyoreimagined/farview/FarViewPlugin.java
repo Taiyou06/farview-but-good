@@ -14,6 +14,7 @@ import net.minecraft.world.level.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.incendo.cloud.execution.ExecutionCoordinator;
 import org.incendo.cloud.paper.PaperCommandManager;
@@ -72,6 +73,11 @@ public final class FarViewPlugin extends JavaPlugin {
             .executionCoordinator(ExecutionCoordinator.asyncCoordinator())
             .buildOnEnable(this);
         FarViewCommands.register(this, commands);
+        if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
+            new FarViewPapiExpansion(this).register();
+        }
+        Plugin mythic = getServer().getPluginManager().getPlugin("MythicMobs");
+        if (mythic != null) FarViewMythicPlaceholders.hook(this, mythic);
 
         start();
     }

@@ -1,5 +1,6 @@
 import xyz.jpenilla.resourcefactory.bukkit.BukkitPluginYaml
 import xyz.jpenilla.resourcefactory.bukkit.Permission
+import xyz.jpenilla.resourcefactory.paper.PaperPluginYaml
 
 plugins {
     id("java")
@@ -11,6 +12,12 @@ plugins {
 
 repositories {
     mavenCentral()
+    maven {
+        url = uri("https://mvn.lumine.io/repository/maven-public/")
+        content { includeGroup("io.lumine") }
+        metadataSources { artifact() }
+    }
+    maven { url = uri("https://repo.extendedclip.com/content/repositories/placeholderapi/") }
 }
 
 dependencies {
@@ -18,6 +25,9 @@ dependencies {
     implementation(libs.configurate.hocon)
     implementation(libs.cloud.paper)
     implementation(libs.caffeine)
+    compileOnly(libs.mythic) { isTransitive = false }
+    compileOnly(libs.lumine.utils) { isTransitive = false }
+    compileOnly(libs.placeholderapi) { isTransitive = false }
 }
 
 paperPluginYaml {
@@ -26,6 +36,10 @@ paperPluginYaml {
     load = BukkitPluginYaml.PluginLoadOrder.STARTUP
     foliaSupported = true
     authors.addAll("kidofcubes")
+    dependencies {
+        server("MythicMobs", PaperPluginYaml.Load.BEFORE, false, true)
+        server("PlaceholderAPI", PaperPluginYaml.Load.BEFORE, false, true)
+    }
     permissions {
         register("farview.use") { default = Permission.Default.TRUE }
         register("farview.others") { default = Permission.Default.OP }

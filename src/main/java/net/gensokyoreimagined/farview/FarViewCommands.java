@@ -16,7 +16,6 @@ import org.incendo.cloud.suggestion.Suggestion;
 import org.incendo.cloud.suggestion.SuggestionProvider;
 
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiConsumer;
@@ -85,7 +84,7 @@ final class FarViewCommands {
                 plugin.preferences().setAutoRate(id, false);
                 plugin.preferences().setRateCapKbps(id, kbps);
                 plugin.reapply(player);
-                reply(ctx, player, "Send rate pinned to " + formatRate(kbps) + ".", NamedTextColor.GREEN);
+                reply(ctx, player, "Send rate pinned to " + FarViewPlaceholders.formatRate(kbps) + ".", NamedTextColor.GREEN);
             })));
 
         cmd.command(root
@@ -137,25 +136,15 @@ final class FarViewCommands {
         reply(ctx, player, "farview: " + (prefs.isEnabled(id) ? "on" : "off")
             + ", distance " + prefs.distance(id, settings.defaultViewDistance())
             + " (" + FarViewSettings.MIN_VIEW_DISTANCE + ".." + settings.maxViewDistance() + ")"
-            + ", rate " + (auto ? "auto" : formatRate(rate.nearestLadderKbps(prefs.rateCapKbps(id, rate.defaultKbps())))),
+            + ", rate " + (auto ? "auto" : FarViewPlaceholders.formatRate(rate.nearestLadderKbps(prefs.rateCapKbps(id, rate.defaultKbps())))),
             NamedTextColor.GRAY);
         ConnectionQuality.Snapshot c = plugin.connectionSnapshot(player);
         if (c == null || c.pingMs() < 0) {
             reply(ctx, player, "Measuring connection...", NamedTextColor.DARK_GRAY);
             return;
         }
-        String quality = c.congested() ? "saturated"
-            : c.jitterMs() > 60 ? "unstable"
-            : c.pingMs() > 200 ? "distant" : "good";
         reply(ctx, player, "Ping " + c.pingMs() + "ms, jitter " + c.jitterMs()
-            + "ms, sending " + formatRate(c.sendRateKbps()) + " of " + formatRate(c.budgetKbps())
-            + " (" + quality + ")", NamedTextColor.DARK_GRAY);
-    }
-
-    private static String formatRate(int kbps) {
-        double mbps = kbps * 8192.0 / 1_000_000.0;
-        if (mbps < 10.0) return String.format(Locale.ROOT, "%.2f Mbps", mbps);
-        if (mbps < 100.0) return String.format(Locale.ROOT, "%.1f Mbps", mbps);
-        return String.format(Locale.ROOT, "%.0f Mbps", mbps);
+            + "ms, sending " + FarViewPlaceholders.formatRate(c.sendRateKbps()) + " of " + FarViewPlaceholders.formatRate(c.budgetKbps())
+            + " (" + FarViewPlaceholders.quality(c) + ")", NamedTextColor.DARK_GRAY);
     }
 }

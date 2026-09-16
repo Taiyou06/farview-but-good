@@ -10,11 +10,17 @@ run-task = "3.0.2"
 configurate-hocon = "4.2.0"
 cloud = "2.0.0"
 caffeine = "3.2.3"
+mythic = "5.12.0-SNAPSHOT"
+lumine-utils = "1.21-SNAPSHOT"
+placeholderapi = "2.11.6"
 
 [libraries]
 configurate-hocon = { module = "org.spongepowered:configurate-hocon", version.ref = "configurate-hocon" }
 cloud-paper = { module = "org.incendo:cloud-paper", version.ref = "cloud" }
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
+mythic = { module = "io.lumine:Mythic", version.ref = "mythic" }
+lumine-utils = { module = "io.lumine:LumineUtils", version.ref = "lumine-utils" }
+placeholderapi = { module = "me.clip:placeholderapi", version.ref = "placeholderapi" }
 
 [plugins]
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }

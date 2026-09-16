@@ -4,6 +4,8 @@ Paper and Folia 26.2 plugin that lets players see terrain beyond the server's vi
 
 It reads already-generated chunks straight from the world's region files and sends them to the client as chunk packets over netty. The server never loads, ticks, or generates them. Fake chunks are a disk snapshot: no entities and no block updates until the player walks into the real view distance. Only chunks that are generated, saved and lit are sent, and players still need to raise their own client render distance.
 
+It is on for every player by default at `default-view-distance` (16), capped at the player's own client render distance plus one. A player can pick any radius up to `max-view-distance` with `/farview distance`, or turn it off for themselves.
+
 Per-player send rate adapts to measured ping, jitter and netty backpressure, or a player can pin a fixed speed.
 
 ## Commands

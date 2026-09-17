@@ -1,6 +1,6 @@
 # farview-but-good
 
-Paper 26.2 and 26.3 plugin (Folia 26.2) that lets players see terrain beyond the server's view distance.
+Paper plugin for 1.21.8, 1.21.11, 26.1, 26.2 and 26.3 (Folia on the versions Folia ships for) that lets players see terrain beyond the server's view distance.
 
 It reads already-generated chunks straight from the world's region files and sends them to the client as chunk packets over netty. The server never loads, ticks, or generates them. Fake chunks are a disk snapshot: no entities and no block updates until the player walks into the real view distance. Only chunks that are generated, saved and lit are sent, and players still need to raise their own client render distance.
 
@@ -61,10 +61,10 @@ PlaceholderAPI: `%farview_<key>%`. MythicMobs: `<caster.farview.<key>>`, `<targe
 
 Output: `build/libs/farview-<version>-all.jar`. Pushes to `main` publish a release tagged with the commit hash.
 
-`./gradlew runServer` starts a Paper 26.3 test server in `run/paper-26.3`, `./gradlew runServer262` a 26.2 one in `run/paper-26.2`.
+`./gradlew runServer` starts a Paper 26.3 test server in `run/paper-26.3`; `runServer262`, `runServer261`, `runServer12111` and `runServer1218` start the other supported versions in `run/paper-<version>`.
 
 ## Minecraft versions
 
-The root project compiles against `paper-api` only. Everything that touches server internals lives behind the `FarViewNms` bridge in `nms/common`, with one self-contained implementation module per Minecraft version (`nms/v26_2`, `nms/v26_3`), each compiled against its own paperweight dev bundle. `FarViewPlugin.loadNms` picks the module matching `Bukkit.getMinecraftVersion()` at startup.
+The root project compiles against the oldest supported `paper-api` (1.21.8) with Java 21 class files. Everything that touches server internals lives behind the `FarViewNms` bridge in `nms/common`, with one self-contained implementation module per Minecraft version (`nms/v1_21_8`, `nms/v1_21_11`, `nms/v26_1`, `nms/v26_2`, `nms/v26_3`), each compiled against its own paperweight dev bundle at that server's Java level. `FarViewPlugin.loadNms` maps the exact `Bukkit.getMinecraftVersion()` string to a module (26.1, 26.1.1 and 26.1.2 share `v26_1`) and loads it by reflection, so a server never touches class files built for another Java version. Versions not in that map are refused at startup.
 
-To add a version: copy the newest `nms/v26_x` module, rename its package, add its dev bundle to `gradle/libs.versions.toml`, include it in `settings.gradle.kts` and the root `build.gradle.kts` dependencies, add a case to `loadNms`, then fix whatever the compiler reports. Between 26.2 and 26.3 that was the chunk and light packet classes becoming records, the light bitsets switching to a byte-array encoding, Starlight's light state tags disappearing, and block palettes being able to store default states as plain strings.
+To add a version: copy the closest `nms/v*` module, rename its package, add its dev bundle to `gradle/libs.versions.toml`, include it in `settings.gradle.kts` and the root `build.gradle.kts` dependencies, add the version strings to `NMS_MODULES`, then fix whatever the compiler reports. Known differences so far: 1.21.x writes one section count short where 26.x writes two; 1.21.8 has no top-level `Strategy` or `PalettedContainerFactory` and still uses `ResourceLocation`; between 26.2 and 26.3 the chunk and light packet classes became records, the light bitsets switched to a byte-array encoding, Starlight's light state tags disappeared, and block palettes can store default states as plain strings.

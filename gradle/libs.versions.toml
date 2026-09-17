@@ -1,5 +1,8 @@
 [versions]
-paper-api = "26.2.build.65-beta"
+paper-api = "1.21.8-R0.1-SNAPSHOT"
+paper-dev-bundle-v1218 = "1.21.8-R0.1-SNAPSHOT"
+paper-dev-bundle-v12111 = "1.21.11-R0.1-SNAPSHOT"
+paper-dev-bundle-v261 = "26.1.2.build.74-stable"
 paper-dev-bundle-v262 = "26.2.build.65-beta"
 paper-dev-bundle-v263 = "26.3.build.7-alpha"
 minecraft = "26.3"

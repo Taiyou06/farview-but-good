@@ -9,7 +9,7 @@ repositories {
 
 
 dependencies {
-    paperweight.paperDevBundle(libs.versions.paper.dev.bundle.v262.get())
+    paperweight.paperDevBundle(libs.versions.paper.dev.bundle.v261.get())
     compileOnly(project(":nms:common"))
 }
 

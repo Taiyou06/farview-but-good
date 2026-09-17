@@ -26,6 +26,9 @@ dependencies {
     compileOnly(libs.paper.api)
     compileOnly(libs.netty)
     implementation(project(":nms:common"))
+    implementation(project(":nms:v1_21_8"))
+    implementation(project(":nms:v1_21_11"))
+    implementation(project(":nms:v26_1"))
     implementation(project(":nms:v26_2"))
     implementation(project(":nms:v26_3"))
     implementation(libs.configurate.hocon)
@@ -37,7 +40,7 @@ dependencies {
 
 paperPluginYaml {
     main = "net.gensokyoreimagined.farview.FarViewPlugin"
-    apiVersion = "26.2"
+    apiVersion = "1.21.8"
     load = BukkitPluginYaml.PluginLoadOrder.STARTUP
     foliaSupported = true
     authors.addAll("kidofcubes")
@@ -54,11 +57,16 @@ paperPluginYaml {
 
 java {
     toolchain.languageVersion = JavaLanguageVersion.of(25)
+    disableAutoTargetJvm()
 }
 
 tasks {
     build {
         dependsOn(shadowJar)
+    }
+
+    compileJava {
+        options.release = 21
     }
 
     shadowJar {
@@ -95,10 +103,13 @@ tasks {
         jvmArgs("-Xms2G", "-Xmx2G", "-Dcom.mojang.eula.agree=true")
     }
 
-    register<RunServer>("runServer262") {
-        minecraftVersion("26.2")
-        runDirectory(layout.projectDirectory.dir("run/paper-26.2").asFile)
-        pluginJars(shadowJar.flatMap { it.archiveFile })
-        jvmArgs("-Xms2G", "-Xmx2G", "-Dcom.mojang.eula.agree=true")
+    for ((task, version) in mapOf("runServer262" to "26.2", "runServer261" to "26.1.2",
+            "runServer12111" to "1.21.11", "runServer1218" to "1.21.8")) {
+        register<RunServer>(task) {
+            minecraftVersion(version)
+            runDirectory(layout.projectDirectory.dir("run/paper-$version").asFile)
+            pluginJars(shadowJar.flatMap { it.archiveFile })
+            jvmArgs("-Xms2G", "-Xmx2G", "-Dcom.mojang.eula.agree=true")
+        }
     }
 }

@@ -81,15 +81,23 @@ public final class FarViewPlugin extends JavaPlugin {
         stop();
     }
 
+    private static final Map<String, String> NMS_MODULES = Map.of(
+        "1.21.8", "v1_21_8",
+        "1.21.11", "v1_21_11",
+        "26.1", "v26_1", "26.1.1", "v26_1", "26.1.2", "v26_1",
+        "26.2", "v26_2",
+        "26.3", "v26_3");
+
     private static FarViewNms loadNms() {
         String version = Bukkit.getMinecraftVersion();
-        String[] parts = version.split("\\.");
-        String release = parts.length < 2 ? version : parts[0] + "." + parts[1];
-        return switch (release) {
-            case "26.2" -> new net.gensokyoreimagined.farview.nms.v26_2.FarViewNmsImpl();
-            case "26.3" -> new net.gensokyoreimagined.farview.nms.v26_3.FarViewNmsImpl();
-            default -> throw new IllegalStateException("farview does not support Minecraft " + version);
-        };
+        String module = NMS_MODULES.get(version);
+        if (module == null) throw new IllegalStateException("farview does not support Minecraft " + version);
+        try {
+            return (FarViewNms) Class.forName("net.gensokyoreimagined.farview.nms." + module + ".FarViewNmsImpl")
+                .getConstructor().newInstance();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("could not load farview support for Minecraft " + version, e);
+        }
     }
 
     void reload() {

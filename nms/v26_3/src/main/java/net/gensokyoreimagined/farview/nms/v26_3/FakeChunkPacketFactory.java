@@ -1,10 +1,8 @@
-package net.gensokyoreimagined.farview.packet;
+package net.gensokyoreimagined.farview.nms.v26_3;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import net.gensokyoreimagined.farview.FarViewSettings;
-import net.gensokyoreimagined.farview.region.SavedChunk;
-import net.gensokyoreimagined.farview.region.WorldRegionSource;
+import net.gensokyoreimagined.farview.nms.FakeChunk;
 import net.minecraft.core.IdMap;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -15,6 +13,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
+import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -33,11 +32,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
-public final class FakeChunkPacketFactory {
-    private static final int LIGHT_STATE_NULL = 0;
-    private static final int LIGHT_STATE_INIT = 2;
-    private static final int LIGHT_STATE_HIDDEN = 3;
-
+final class FakeChunkPacketFactory {
     private static final StreamCodec<RegistryFriendlyByteBuf, BlockEntityType<?>> BLOCK_ENTITY_TYPE =
         ByteBufCodecs.registry(Registries.BLOCK_ENTITY_TYPE);
 
@@ -64,8 +59,7 @@ public final class FakeChunkPacketFactory {
 
     private FakeChunkPacketFactory() {}
 
-    public static ClientboundLevelChunkWithLightPacket build(WorldRegionSource source, FarViewSettings settings,
-                                                             int chunkX, int chunkZ, SavedChunk saved) {
+    static FakeChunk build(WorldRegionSource source, int chunkX, int chunkZ, SavedChunk saved) {
         RegistryFriendlyByteBuf out = new RegistryFriendlyByteBuf(scratch(PACKET_SCRATCH), source.registryAccess());
         out.writeInt(chunkX);
         out.writeInt(chunkZ);
@@ -74,7 +68,13 @@ public final class FakeChunkPacketFactory {
 
         ClientboundLevelChunkWithLightPacket packet = ClientboundLevelChunkWithLightPacket.STREAM_CODEC.decode(out);
         packet.setReady(true);
-        return packet;
+        return new FakeChunk(packet, weigh(packet));
+    }
+
+    private static int weigh(ClientboundLevelChunkWithLightPacket packet) {
+        ClientboundLightUpdatePacketData light = packet.lightData();
+        return packet.chunkData().getReadBuffer().readableBytes()
+            + (light.skyUpdates().size() + light.blockUpdates().size()) * SavedChunk.DATA_LAYER_BYTES;
     }
 
     private static ByteBuf scratch(ThreadLocal<ByteBuf> holder) {
@@ -146,7 +146,7 @@ public final class FakeChunkPacketFactory {
 
         int bits = storedBits(count, minBits);
         if (bits > maxLocalBits) {
-            unpack(strategy, palette, from, count, bytes, dataAt, dataWords, defaultValue).write(out, null, 0);
+            unpack(strategy, palette, from, count, bytes, dataAt, dataWords).write(out);
             return;
         }
 
@@ -229,14 +229,14 @@ public final class FakeChunkPacketFactory {
     }
 
     private static <T> PalettedContainer<T> unpack(Strategy<T> strategy, T[] palette, int from, int count,
-                                                   byte[] bytes, int dataAt, int dataWords, T defaultValue) {
+                                                   byte[] bytes, int dataAt, int dataWords) {
         long[] data = new long[dataWords];
         for (int i = 0; i < dataWords; i++) {
             data[i] = (long) LONG_AT.get(bytes, dataAt + i * 8);
         }
         PalettedContainerRO.PackedData<T> packed = new PalettedContainerRO.PackedData<>(
             Arrays.asList(palette).subList(from, from + count), Optional.of(Arrays.stream(data)));
-        return PalettedContainer.unpack(strategy, packed, defaultValue, null).getOrThrow();
+        return PalettedContainer.unpack(strategy, packed).getOrThrow();
     }
 
     private static void writeBlockEntities(RegistryFriendlyByteBuf out, SavedChunk chunk) {
@@ -291,10 +291,8 @@ public final class FakeChunkPacketFactory {
             SavedChunk.Section section = saved.section(y);
             if (section == null) continue;
             int index = y - minLightSection;
-            if (source.hasSkyLight()) {
-                mark(masks, sky, emptySky, index, section.skyLightState(), section.skyLightAt());
-            }
-            mark(masks, block, emptyBlock, index, section.blockLightState(), section.blockLightAt());
+            if (source.hasSkyLight() && section.skyLightAt() >= 0) set(masks, sky, index);
+            if (section.blockLightAt() >= 0) set(masks, block, index);
         }
 
         writeMask(out, masks, sky, words);
@@ -303,15 +301,6 @@ public final class FakeChunkPacketFactory {
         writeMask(out, masks, emptyBlock, words);
         writeLayers(out, saved, masks, sky, words, minLightSection, maxLightSection, true);
         writeLayers(out, saved, masks, block, words, minLightSection, maxLightSection, false);
-    }
-
-    private static void mark(long[] masks, int mask, int emptyMask, int index, int state, int at) {
-        if (state == LIGHT_STATE_NULL || state == LIGHT_STATE_HIDDEN) return;
-        if (state != LIGHT_STATE_INIT || at < 0) {
-            set(masks, emptyMask, index);
-            return;
-        }
-        set(masks, mask, index);
     }
 
     private static void set(long[] masks, int base, int index) {
@@ -325,9 +314,11 @@ public final class FakeChunkPacketFactory {
     private static void writeMask(FriendlyByteBuf out, long[] masks, int base, int words) {
         int length = words;
         while (length > 0 && masks[base + length - 1] == 0L) length--;
-        out.writeVarInt(length);
-        for (int i = 0; i < length; i++) {
-            out.writeLong(masks[base + i]);
+        int bytes = length == 0 ? 0
+            : (length - 1) * 8 + (71 - Long.numberOfLeadingZeros(masks[base + length - 1])) / 8;
+        out.writeVarInt(bytes);
+        for (int i = 0; i < bytes; i++) {
+            out.writeByte((int) (masks[base + (i >> 3)] >>> ((i & 7) * 8)));
         }
     }
 

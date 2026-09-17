@@ -6,19 +6,16 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.game.ClientboundSetChunkCacheRadiusPacket;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.server.level.ChunkTrackingView;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.Level;
+import net.gensokyoreimagined.farview.nms.SessionHooks;
+import org.bukkit.Chunk;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-final class FarViewSession {
+final class FarViewSession implements SessionHooks {
     private static final Map<Integer, long[]> SPIRALS = new ConcurrentHashMap<>();
 
     private final Player player;
@@ -26,7 +23,7 @@ final class FarViewSession {
     private final FarViewPlugin plugin;
 
     private volatile ChannelHandlerContext ctx;
-    private volatile ResourceKey<Level> dimension;
+    private volatile NamespacedKey dimension;
     private volatile boolean active;
     private volatile int fakeRadius;
     private volatile int serverRadius;
@@ -49,7 +46,7 @@ final class FarViewSession {
     private boolean needsRebuild;
 
     FarViewSession(Player player, Channel channel, FarViewPlugin plugin,
-                          ResourceKey<Level> dimension, int serverRadius,
+                          NamespacedKey dimension, int serverRadius,
                           FarViewSettings.RatePolicy ratePolicy) {
         this.player = player;
         this.channel = channel;
@@ -60,7 +57,7 @@ final class FarViewSession {
         this.rateCapKbps = ratePolicy.maxKbps();
     }
 
-    ResourceKey<Level> dimension() { return dimension; }
+    NamespacedKey dimension() { return dimension; }
     ConnectionQuality quality() { return quality; }
 
     public void applyRate(boolean auto, int capKbps) {
@@ -90,7 +87,7 @@ final class FarViewSession {
             fakeRadius = Math.max(0, radius);
             active = fakeRadius > 0;
             resetTracking();
-            send(new ClientboundSetChunkCacheRadiusPacket(effectiveRadius()));
+            send(plugin.nms().chunkRadiusPacket(effectiveRadius()));
         });
     }
 
@@ -112,16 +109,16 @@ final class FarViewSession {
     }
 
     public void onServerChunk(int chunkX, int chunkZ) {
-        long key = ChunkPos.pack(chunkX, chunkZ);
+        long key = Chunk.getChunkKey(chunkX, chunkZ);
         serverChunks.add(key);
         attempted.remove(key);
     }
 
-    public boolean onForget(ChunkPos pos) {
-        long key = pos.pack();
+    public boolean onForget(int chunkX, int chunkZ) {
+        long key = Chunk.getChunkKey(chunkX, chunkZ);
         serverChunks.remove(key);
         if (!active || !centerKnown) return false;
-        if (outsideRing(pos.x(), pos.z())) {
+        if (outsideRing(chunkX, chunkZ)) {
             attempted.remove(key);
             return false;
         }
@@ -129,7 +126,7 @@ final class FarViewSession {
         return true;
     }
 
-    public void onRespawn(ResourceKey<Level> newDimension) {
+    public void onRespawn(NamespacedKey newDimension) {
         dimension = newDimension;
         resetTracking();
         plugin.reapply(player);
@@ -157,13 +154,13 @@ final class FarViewSession {
         inFlight.decrementAndGet();
     }
 
-    public void send(Packet<?> packet) {
+    public void send(Object packet) {
         ChannelHandlerContext current = ctx;
         if (current == null || !channel.isActive()) return;
         current.writeAndFlush(packet, current.voidPromise());
     }
 
-    void sendChunk(Packet<?> packet) {
+    void sendChunk(Object packet) {
         if (ctx == null || !channel.isActive()) return;
         quality.onChunkSent();
         send(packet);
@@ -195,7 +192,7 @@ final class FarViewSession {
             int chunkX = centerX + dx;
             int chunkZ = centerZ + dz;
             if (serverSends(chunkX, chunkZ)) continue;
-            long key = ChunkPos.pack(chunkX, chunkZ);
+            long key = Chunk.getChunkKey(chunkX, chunkZ);
             if (serverChunks.contains(key) || attempted.contains(key)) continue;
             pending.add(key);
         }
@@ -204,16 +201,26 @@ final class FarViewSession {
     private boolean serverSends(int chunkX, int chunkZ) {
         int dx = Math.abs(chunkX - centerX);
         int dz = Math.abs(chunkZ - centerZ);
-        return Math.max(dx, dz) <= serverRadius + 1
-            && ChunkTrackingView.isWithinDistance(centerX, centerZ, serverRadius, chunkX, chunkZ, true);
+        if (Math.max(dx, dz) > serverRadius + 1) return false;
+        long bufferedX = Math.max(0, dx - 2);
+        long bufferedZ = Math.max(0, dz - 2);
+        return bufferedX * bufferedX + bufferedZ * bufferedZ < (long) serverRadius * serverRadius;
     }
 
     private void pruneOutOfRange(LongOpenHashSet set) {
         LongIterator it = set.iterator();
         while (it.hasNext()) {
             long key = it.nextLong();
-            if (outsideRing(ChunkPos.getX(key), ChunkPos.getZ(key))) it.remove();
+            if (outsideRing(chunkX(key), chunkZ(key))) it.remove();
         }
+    }
+
+    static int chunkX(long key) {
+        return (int) key;
+    }
+
+    static int chunkZ(long key) {
+        return (int) (key >>> 32);
     }
 
     private static final int SPIRAL_BIAS = 512;

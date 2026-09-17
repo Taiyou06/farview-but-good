@@ -1,22 +1,22 @@
-package net.gensokyoreimagined.farview;
+package net.gensokyoreimagined.farview.nms.v26_2;
 
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
 import io.netty.util.ReferenceCountUtil;
+import net.gensokyoreimagined.farview.nms.SessionHooks;
 import net.minecraft.network.protocol.common.ClientboundKeepAlivePacket;
 import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
 import net.minecraft.network.protocol.game.ClientboundRespawnPacket;
 import net.minecraft.network.protocol.game.ClientboundSetChunkCacheCenterPacket;
 import net.minecraft.network.protocol.game.ClientboundSetChunkCacheRadiusPacket;
+import org.bukkit.craftbukkit.util.CraftNamespacedKey;
 
 final class FarViewChannelHandler extends ChannelDuplexHandler {
-    public static final String NAME = "gensou_farview";
+    private final SessionHooks session;
 
-    private final FarViewSession session;
-
-    FarViewChannelHandler(FarViewSession session) {
+    FarViewChannelHandler(SessionHooks session) {
         this.session = session;
     }
 
@@ -34,7 +34,7 @@ final class FarViewChannelHandler extends ChannelDuplexHandler {
             session.onServerChunk(packet.getX(), packet.getZ());
 
         } else if (msg instanceof ClientboundForgetLevelChunkPacket packet) {
-            if (session.onForget(packet.pos())) {
+            if (session.onForget(packet.pos().x(), packet.pos().z())) {
                 ReferenceCountUtil.release(msg);
                 promise.trySuccess();
                 return;
@@ -50,7 +50,7 @@ final class FarViewChannelHandler extends ChannelDuplexHandler {
             }
 
         } else if (msg instanceof ClientboundRespawnPacket packet) {
-            session.onRespawn(packet.commonPlayerSpawnInfo().dimension());
+            session.onRespawn(CraftNamespacedKey.fromMinecraft(packet.commonPlayerSpawnInfo().dimension().identifier()));
 
         } else if (msg instanceof ClientboundKeepAlivePacket packet) {
             session.onKeepAliveSent(packet.getId());

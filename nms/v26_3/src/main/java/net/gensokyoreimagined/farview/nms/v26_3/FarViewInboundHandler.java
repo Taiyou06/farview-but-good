@@ -1,15 +1,14 @@
-package net.gensokyoreimagined.farview;
+package net.gensokyoreimagined.farview.nms.v26_3;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import net.gensokyoreimagined.farview.nms.SessionHooks;
 import net.minecraft.network.protocol.common.ServerboundKeepAlivePacket;
 
 final class FarViewInboundHandler extends ChannelInboundHandlerAdapter {
-    public static final String NAME = "gensou_farview_in";
+    private final SessionHooks session;
 
-    private final FarViewSession session;
-
-    FarViewInboundHandler(FarViewSession session) {
+    FarViewInboundHandler(SessionHooks session) {
         this.session = session;
     }
 

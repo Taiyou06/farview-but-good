@@ -1,23 +1,16 @@
 package net.gensokyoreimagined.farview;
 
-import io.papermc.paper.command.brigadier.CommandSourceStack;
+import net.gensokyoreimagined.farview.nms.ChunkSource;
+import net.gensokyoreimagined.farview.nms.FakeChunk;
+import net.gensokyoreimagined.farview.nms.FarViewNms;
 import net.gensokyoreimagined.farview.packet.FakeChunkCache;
-import net.gensokyoreimagined.farview.packet.FakeChunkPacketFactory;
-import net.gensokyoreimagined.farview.region.SavedChunk;
-import net.gensokyoreimagined.farview.region.WorldRegionSource;
-import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.Level;
 import org.bukkit.Bukkit;
+import org.bukkit.NamespacedKey;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.incendo.cloud.execution.ExecutionCoordinator;
-import org.incendo.cloud.paper.PaperCommandManager;
 import org.spongepowered.configurate.CommentedConfigurationNode;
 import org.spongepowered.configurate.ConfigurateException;
 import org.spongepowered.configurate.hocon.HoconConfigurationLoader;
@@ -40,8 +33,9 @@ public final class FarViewPlugin extends JavaPlugin {
     private static final long TICK_MS = 50L;
 
     private final Map<UUID, FarViewSession> sessions = new ConcurrentHashMap<>();
-    private final Map<ResourceKey<Level>, WorldRegionSource> sources = new ConcurrentHashMap<>();
+    private final Map<NamespacedKey, ChunkSource> sources = new ConcurrentHashMap<>();
 
+    private FarViewNms nms;
     private Logger logger;
     private Path configFile;
     private HoconConfigurationLoader configLoader;
@@ -55,10 +49,13 @@ public final class FarViewPlugin extends JavaPlugin {
 
     FarViewSettings settings() { return settings; }
     FarViewPreferences preferences() { return preferences; }
+    FarViewNms nms() { return nms; }
 
     @Override
     public void onEnable() {
         this.logger = getLogger();
+        this.nms = loadNms();
+        logger.info("Minecraft " + Bukkit.getMinecraftVersion() + ", using " + nms.getClass().getName());
         Path folder = getDataFolder().toPath();
         try {
             Files.createDirectories(folder);
@@ -69,10 +66,7 @@ public final class FarViewPlugin extends JavaPlugin {
         this.configLoader = HoconConfigurationLoader.builder().path(configFile).build();
         this.preferences = new FarViewPreferences(folder.resolve("preferences.json"));
 
-        PaperCommandManager<CommandSourceStack> commands = PaperCommandManager.builder()
-            .executionCoordinator(ExecutionCoordinator.asyncCoordinator())
-            .buildOnEnable(this);
-        FarViewCommands.register(this, commands);
+        FarViewCommands.register(this);
         if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
             new FarViewPapiExpansion(this).register();
         }
@@ -85,6 +79,17 @@ public final class FarViewPlugin extends JavaPlugin {
     @Override
     public void onDisable() {
         stop();
+    }
+
+    private static FarViewNms loadNms() {
+        String version = Bukkit.getMinecraftVersion();
+        String[] parts = version.split("\\.");
+        String release = parts.length < 2 ? version : parts[0] + "." + parts[1];
+        return switch (release) {
+            case "26.2" -> new net.gensokyoreimagined.farview.nms.v26_2.FarViewNmsImpl();
+            case "26.3" -> new net.gensokyoreimagined.farview.nms.v26_3.FarViewNmsImpl();
+            default -> throw new IllegalStateException("farview does not support Minecraft " + version);
+        };
     }
 
     void reload() {
@@ -139,7 +144,7 @@ public final class FarViewPlugin extends JavaPlugin {
             if (scheduler != null) { scheduler.shutdownNow(); scheduler = null; }
             if (ioPool != null) { ioPool.shutdownNow(); ioPool = null; }
 
-            for (WorldRegionSource source : sources.values()) source.close();
+            for (ChunkSource source : sources.values()) source.close();
             sources.clear();
 
             if (cache != null) { cache.invalidateAll(); cache = null; }
@@ -147,10 +152,10 @@ public final class FarViewPlugin extends JavaPlugin {
     }
 
     private void initWorlds() {
-        MinecraftServer server = MinecraftServer.getServer();
-        for (ServerLevel level : server.getAllLevels()) {
-            if (!settings.worlds().contains(level.getWorld().getName())) continue;
-            sources.put(level.dimension(), new WorldRegionSource(level, server, settings.regionReaderCache()));
+        for (World world : Bukkit.getWorlds()) {
+            if (!settings.worlds().contains(world.getName())) continue;
+            sources.put(world.getKey(), nms.openWorld(world, settings.regionReaderCache(),
+                settings.debug() ? logger::info : null));
         }
         if (sources.isEmpty()) {
             logger.warning("none of the allowlisted worlds " + settings.worlds()
@@ -170,7 +175,7 @@ public final class FarViewPlugin extends JavaPlugin {
 
     void detach(Player player) {
         if (sessions.remove(player.getUniqueId()) == null) return;
-        FarViewInjector.uninject(player);
+        FarViewInjector.uninject(this, player);
     }
 
     void reapply(Player player) {
@@ -238,48 +243,31 @@ public final class FarViewPlugin extends JavaPlugin {
 
     private void runRead(FarViewSession session, long chunkKey, int held) {
         try {
-            WorldRegionSource source = sources.get(session.dimension());
+            NamespacedKey dimension = session.dimension();
+            ChunkSource source = sources.get(dimension);
             FakeChunkCache currentCache = cache;
             if (source == null || currentCache == null) return;
 
-            ClientboundLevelChunkWithLightPacket packet =
-                currentCache.get(source.dimension(), chunkKey, key -> load(source, key));
-            if (packet != null) session.sendChunk(packet);
+            FakeChunk chunk = currentCache.get(dimension, chunkKey, key -> load(source, key));
+            if (chunk != null) session.sendChunk(chunk.packet());
 
         } catch (UncheckedIOException io) {
-            logger.fine("region read failed for " + ChunkPos.getX(chunkKey)
-                + "," + ChunkPos.getZ(chunkKey) + ": " + io.getMessage());
+            logger.fine("region read failed for " + FarViewSession.chunkX(chunkKey)
+                + "," + FarViewSession.chunkZ(chunkKey) + ": " + io.getMessage());
         } catch (Throwable t) {
-            logger.warning("could not build chunk " + ChunkPos.getX(chunkKey)
-                + "," + ChunkPos.getZ(chunkKey) + ": " + t);
+            logger.warning("could not build chunk " + FarViewSession.chunkX(chunkKey)
+                + "," + FarViewSession.chunkZ(chunkKey) + ": " + t);
         } finally {
             session.readFinished(held);
         }
     }
 
-    private ClientboundLevelChunkWithLightPacket load(WorldRegionSource source, long chunkKey) {
-        int chunkX = ChunkPos.getX(chunkKey);
-        int chunkZ = ChunkPos.getZ(chunkKey);
-        SavedChunk saved;
+    private FakeChunk load(ChunkSource source, long chunkKey) {
         try {
-            saved = source.readChunk(chunkX, chunkZ, settings.blockEntities());
+            return source.read(FarViewSession.chunkX(chunkKey), FarViewSession.chunkZ(chunkKey),
+                settings.blockEntities(), settings.requireSavedLight());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-
-        if (saved == null) return skip(chunkX, chunkZ, "not saved to disk");
-        if (!saved.full()) return skip(chunkX, chunkZ, "status is not full");
-        if (settings.requireSavedLight() && !saved.hasValidLight()) {
-            return skip(chunkX, chunkZ, "saved light is missing or stale");
-        }
-
-        return FakeChunkPacketFactory.build(source, settings, chunkX, chunkZ, saved);
-    }
-
-    private ClientboundLevelChunkWithLightPacket skip(int chunkX, int chunkZ, String reason) {
-        if (settings.debug()) {
-            logger.info("skipped chunk " + chunkX + "," + chunkZ + ": " + reason);
-        }
-        return null;
     }
 }

@@ -1,6 +1,5 @@
-package net.gensokyoreimagined.farview.region;
+package net.gensokyoreimagined.farview.nms.v26_3;
 
-import ca.spottedleaf.moonrise.patches.starlight.util.SaveUtil;
 import net.minecraft.core.Holder;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.biome.Biome;
@@ -23,8 +22,6 @@ public final class SavedChunk {
         int biomePaletteCount;
         int biomeDataAt;
         int biomeDataWords;
-        int skyLightState;
-        int blockLightState;
         int skyLightAt;
         int blockLightAt;
 
@@ -37,8 +34,6 @@ public final class SavedChunk {
             biomePaletteCount = -1;
             biomeDataAt = -1;
             biomeDataWords = 0;
-            skyLightState = 0;
-            blockLightState = 0;
             skyLightAt = -1;
             blockLightAt = -1;
         }
@@ -51,8 +46,6 @@ public final class SavedChunk {
         public int biomePaletteCount() { return biomePaletteCount; }
         public int biomeDataAt() { return biomeDataAt; }
         public int biomeDataWords() { return biomeDataWords; }
-        public int skyLightState() { return skyLightState; }
-        public int blockLightState() { return blockLightState; }
 
         public int skyLightAt() { return skyLightAt; }
         public int blockLightAt() { return blockLightAt; }
@@ -61,7 +54,6 @@ public final class SavedChunk {
     private byte[] bytes;
     private boolean full;
     private boolean lightOn;
-    private int starlightVersion;
 
     private final Heightmap.Types[] heightmapTypes = new Heightmap.Types[Heightmap.Types.values().length];
     private final int[] heightmapAt = new int[heightmapTypes.length];
@@ -96,14 +88,13 @@ public final class SavedChunk {
     }
 
     public boolean hasValidLight() {
-        return lightOn && starlightVersion == SaveUtil.STARLIGHT_LIGHT_VERSION;
+        return lightOn;
     }
 
     void reset(byte[] bytes, int firstY, int sections) {
         this.bytes = bytes;
         this.full = false;
         this.lightOn = false;
-        this.starlightVersion = -1;
         this.heightmapCount = 0;
         this.pooled = 0;
         this.blockPaletteTop = 0;
@@ -117,7 +108,6 @@ public final class SavedChunk {
 
     void full(boolean full) { this.full = full; }
     void lightOn() { this.lightOn = true; }
-    void starlightVersion(int version) { this.starlightVersion = version; }
 
     void heightmap(Heightmap.Types type, int at, int words) {
         if (heightmapCount == heightmapTypes.length) return;

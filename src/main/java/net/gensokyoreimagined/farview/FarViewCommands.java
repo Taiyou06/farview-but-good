@@ -1,129 +1,120 @@
 package net.gensokyoreimagined.farview;
 
+import com.mojang.brigadier.Command;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.builder.ArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.tree.LiteralCommandNode;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
+import io.papermc.paper.command.brigadier.Commands;
+import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
+import io.papermc.paper.command.brigadier.argument.resolvers.selector.PlayerSelectorArgumentResolver;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.incendo.cloud.Command;
-import org.incendo.cloud.bukkit.parser.PlayerParser;
-import org.incendo.cloud.context.CommandContext;
-import org.incendo.cloud.execution.CommandExecutionHandler;
-import org.incendo.cloud.paper.PaperCommandManager;
-import org.incendo.cloud.parser.standard.IntegerParser;
-import org.incendo.cloud.suggestion.Suggestion;
-import org.incendo.cloud.suggestion.SuggestionProvider;
 
-import java.util.Arrays;
-import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 
 final class FarViewCommands {
     private FarViewCommands() {}
 
-    static void register(FarViewPlugin plugin, PaperCommandManager<CommandSourceStack> cmd) {
-        Command.Builder<CommandSourceStack> root = cmd.commandBuilder("farview", "fv")
-            .permission("farview.use");
+    static void register(FarViewPlugin plugin) {
+        plugin.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event ->
+            event.registrar().register(build(plugin), "Extended view distance", List.of("fv")));
+    }
 
-        cmd.command(root
-            .literal("status")
-            .optional("player", PlayerParser.playerParser())
-            .handler(target(plugin, (player, ctx) -> status(plugin, player, ctx))));
-
-        cmd.command(root
-            .literal("on")
-            .optional("player", PlayerParser.playerParser())
-            .handler(target(plugin, (player, ctx) -> {
+    private static LiteralCommandNode<CommandSourceStack> build(FarViewPlugin plugin) {
+        return Commands.literal("farview")
+            .requires(source -> source.getSender().hasPermission("farview.use"))
+            .then(targeted(Commands.literal("status"), plugin, (player, ctx) -> status(plugin, player, ctx)))
+            .then(targeted(Commands.literal("on"), plugin, (player, ctx) -> {
                 plugin.preferences().setEnabled(player.getUniqueId(), true);
                 plugin.reapply(player);
                 reply(ctx, player, "Extended view distance on.", NamedTextColor.GREEN);
-            })));
-
-        cmd.command(root
-            .literal("off")
-            .optional("player", PlayerParser.playerParser())
-            .handler(target(plugin, (player, ctx) -> {
+            }))
+            .then(targeted(Commands.literal("off"), plugin, (player, ctx) -> {
                 plugin.preferences().setEnabled(player.getUniqueId(), false);
                 plugin.reapply(player);
                 reply(ctx, player, "Extended view distance off.", NamedTextColor.YELLOW);
-            })));
-
-        cmd.command(root
-            .literal("distance")
-            .required("chunks", IntegerParser.integerParser(
-                FarViewSettings.MIN_VIEW_DISTANCE, FarViewSettings.CLIENT_MAX_VIEW_DISTANCE))
-            .optional("player", PlayerParser.playerParser())
-            .handler(target(plugin, (player, ctx) -> {
-                int distance = plugin.settings().clampViewDistance(ctx.get("chunks"));
-                plugin.preferences().setDistance(player.getUniqueId(), distance);
-                plugin.reapply(player);
-                reply(ctx, player, "View distance set to " + distance + " chunks.", NamedTextColor.GREEN);
-            })));
-
-        cmd.command(root
-            .literal("rate").literal("auto")
-            .optional("player", PlayerParser.playerParser())
-            .handler(target(plugin, (player, ctx) -> {
-                plugin.preferences().setAutoRate(player.getUniqueId(), true);
-                plugin.reapply(player);
-                reply(ctx, player, "Send rate set to auto.", NamedTextColor.GREEN);
-            })));
-
-        cmd.command(root
-            .literal("rate")
-            .required("kbps", IntegerParser.integerParser(1),
-                SuggestionProvider.blocking((ctx, in) -> Arrays.stream(plugin.settings().rate().ladder())
-                    .mapToObj(step -> Suggestion.suggestion(Integer.toString(step))).toList()))
-            .optional("player", PlayerParser.playerParser())
-            .handler(target(plugin, (player, ctx) -> {
-                FarViewSettings.RatePolicy rate = plugin.settings().rate();
-                int kbps = rate.nearestLadderKbps(ctx.get("kbps"));
-                UUID id = player.getUniqueId();
-                plugin.preferences().setAutoRate(id, false);
-                plugin.preferences().setRateCapKbps(id, kbps);
-                plugin.reapply(player);
-                reply(ctx, player, "Send rate pinned to " + FarViewPlaceholders.formatRate(kbps) + ".", NamedTextColor.GREEN);
-            })));
-
-        cmd.command(root
-            .literal("reload")
-            .permission("farview.reload")
-            .handler(ctx -> {
-                plugin.reload();
-                ctx.sender().getSender().sendMessage(Component.text("farview reloaded.", NamedTextColor.GREEN));
-            }));
+            }))
+            .then(Commands.literal("distance")
+                .then(targeted(Commands.argument("chunks", IntegerArgumentType.integer(
+                    FarViewSettings.MIN_VIEW_DISTANCE, FarViewSettings.CLIENT_MAX_VIEW_DISTANCE)), plugin, (player, ctx) -> {
+                    int distance = plugin.settings().clampViewDistance(IntegerArgumentType.getInteger(ctx, "chunks"));
+                    plugin.preferences().setDistance(player.getUniqueId(), distance);
+                    plugin.reapply(player);
+                    reply(ctx, player, "View distance set to " + distance + " chunks.", NamedTextColor.GREEN);
+                })))
+            .then(Commands.literal("rate")
+                .then(targeted(Commands.literal("auto"), plugin, (player, ctx) -> {
+                    plugin.preferences().setAutoRate(player.getUniqueId(), true);
+                    plugin.reapply(player);
+                    reply(ctx, player, "Send rate set to auto.", NamedTextColor.GREEN);
+                }))
+                .then(targeted(Commands.argument("kbps", IntegerArgumentType.integer(1))
+                    .suggests((ctx, builder) -> {
+                        for (int step : plugin.settings().rate().ladder()) builder.suggest(step);
+                        return builder.buildFuture();
+                    }), plugin, (player, ctx) -> {
+                    FarViewSettings.RatePolicy rate = plugin.settings().rate();
+                    int kbps = rate.nearestLadderKbps(IntegerArgumentType.getInteger(ctx, "kbps"));
+                    UUID id = player.getUniqueId();
+                    plugin.preferences().setAutoRate(id, false);
+                    plugin.preferences().setRateCapKbps(id, kbps);
+                    plugin.reapply(player);
+                    reply(ctx, player, "Send rate pinned to " + FarViewPlaceholders.formatRate(kbps) + ".", NamedTextColor.GREEN);
+                })))
+            .then(Commands.literal("reload")
+                .requires(source -> source.getSender().hasPermission("farview.reload"))
+                .executes(ctx -> {
+                    plugin.reload();
+                    ctx.getSource().getSender().sendMessage(Component.text("farview reloaded.", NamedTextColor.GREEN));
+                    return Command.SINGLE_SUCCESS;
+                }))
+            .build();
     }
 
-    private static CommandExecutionHandler<CommandSourceStack> target(
-            FarViewPlugin plugin, BiConsumer<Player, CommandContext<CommandSourceStack>> body) {
+    private static <T extends ArgumentBuilder<CommandSourceStack, T>> T targeted(
+            T node, FarViewPlugin plugin, BiConsumer<Player, CommandContext<CommandSourceStack>> body) {
+        return node
+            .executes(target(plugin, body, false))
+            .then(Commands.argument("player", ArgumentTypes.player()).executes(target(plugin, body, true)));
+    }
+
+    private static Command<CommandSourceStack> target(
+            FarViewPlugin plugin, BiConsumer<Player, CommandContext<CommandSourceStack>> body, boolean other) {
         return ctx -> {
-            CommandSender sender = ctx.sender().getSender();
-            Optional<Player> other = ctx.optional("player");
+            CommandSender sender = ctx.getSource().getSender();
             Player target;
-            if (other.isPresent()) {
+            if (other) {
                 if (!sender.hasPermission("farview.others")) {
                     sender.sendMessage(Component.text("You may only change your own settings.", NamedTextColor.RED));
-                    return;
+                    return 0;
                 }
-                target = other.get();
+                target = ctx.getArgument("player", PlayerSelectorArgumentResolver.class)
+                    .resolve(ctx.getSource()).getFirst();
             } else if (sender instanceof Player self) {
                 target = self;
             } else {
                 sender.sendMessage(Component.text("Name a player.", NamedTextColor.RED));
-                return;
+                return 0;
             }
             if (!plugin.available(target)) {
                 reply(ctx, target, "Extended view distance is not available here.", NamedTextColor.RED);
-                return;
+                return 0;
             }
             body.accept(target, ctx);
+            return Command.SINGLE_SUCCESS;
         };
     }
 
     private static void reply(CommandContext<CommandSourceStack> ctx, Player target, String text, TextColor color) {
-        CommandSender sender = ctx.sender().getSender();
+        CommandSender sender = ctx.getSource().getSender();
         sender.sendMessage(Component.text(sender == target ? text : target.getName() + ": " + text, color));
     }
 

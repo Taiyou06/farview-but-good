@@ -1,7 +1,8 @@
-package net.gensokyoreimagined.farview.region;
+package net.gensokyoreimagined.farview.nms.v26_3;
 
-import ca.spottedleaf.moonrise.patches.starlight.util.SaveUtil;
-import net.gensokyoreimagined.farview.FarViewSettings;
+import net.gensokyoreimagined.farview.nms.BlockEntityPolicy;
+import net.gensokyoreimagined.farview.nms.ChunkNbtInput;
+import net.gensokyoreimagined.farview.nms.PaletteCache;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -33,14 +34,11 @@ final class SavedChunkReader {
     private static final byte[] STATUS = key("Status");
     private static final byte[] STATUS_FULL = key(BuiltInRegistries.CHUNK_STATUS.getKey(ChunkStatus.FULL).toString());
     private static final byte[] STATUS_FULL_BARE = key(BuiltInRegistries.CHUNK_STATUS.getKey(ChunkStatus.FULL).getPath());
-    private static final byte[] LIGHT_ON = key("isLightOn");
-    private static final byte[] STARLIGHT_VERSION = key(SaveUtil.STARLIGHT_VERSION_TAG);
-    private static final byte[] HEIGHTMAPS = key("Heightmaps");
-    private static final byte[] SECTIONS = key("sections");
+    private static final byte[] LIGHT_ON = key(SerializableChunkData.IS_LIGHT_ON_TAG);
+    private static final byte[] HEIGHTMAPS = key(SerializableChunkData.HEIGHTMAPS_TAG);
+    private static final byte[] SECTIONS = key(SerializableChunkData.SECTIONS_TAG);
     private static final byte[] BLOCK_ENTITIES = key("block_entities");
     private static final byte[] SECTION_Y = key("Y");
-    private static final byte[] SKYLIGHT_STATE = key(SaveUtil.SKYLIGHT_STATE_TAG);
-    private static final byte[] BLOCKLIGHT_STATE = key(SaveUtil.BLOCKLIGHT_STATE_TAG);
     private static final byte[] SKY_LIGHT = key(SerializableChunkData.SKY_LIGHT_TAG);
     private static final byte[] BLOCK_LIGHT = key(SerializableChunkData.BLOCK_LIGHT_TAG);
     private static final byte[] BLOCK_STATES = key("block_states");
@@ -49,6 +47,7 @@ final class SavedChunkReader {
     private static final byte[] DATA = key("data");
     private static final byte[] NAME = key("Name");
     private static final byte[] PROPERTIES = key("Properties");
+    private static final byte[] WRAPPED = key("");
     private static final byte[] ID = key("id");
 
     private static final byte[][] CLIENT_HEIGHTMAP_KEYS;
@@ -77,7 +76,7 @@ final class SavedChunkReader {
     private HolderGetter<Biome> biomeLookup;
     private BlockState defaultBlockState;
     private Holder<Biome> defaultBiome;
-    private FarViewSettings.BlockEntityPolicy policy;
+    private BlockEntityPolicy policy;
     private int minSectionY;
     private int maxSectionY;
 
@@ -90,7 +89,7 @@ final class SavedChunkReader {
     }
 
     void begin(HolderGetter<Biome> biomeLookup, BlockState defaultBlockState, Holder<Biome> defaultBiome,
-               int minSectionY, int maxSectionY, FarViewSettings.BlockEntityPolicy policy) {
+               int minSectionY, int maxSectionY, BlockEntityPolicy policy) {
         if (this.biomeLookup != biomeLookup) {
             this.biomeLookup = biomeLookup;
             biomes.clear();
@@ -128,11 +127,8 @@ final class SavedChunkReader {
             readName();
             if (type == Tag.TAG_STRING && named(STATUS)) {
                 readStatus();
-            } else if (type == Tag.TAG_INT && named(STARLIGHT_VERSION)) {
-                chunk.starlightVersion(in.readInt());
-            } else if (named(LIGHT_ON)) {
-                chunk.lightOn();
-                skip(type);
+            } else if (type == Tag.TAG_BYTE && named(LIGHT_ON)) {
+                if (in.readByte() != 0) chunk.lightOn();
             } else if (type == Tag.TAG_COMPOUND && named(HEIGHTMAPS)) {
                 readHeightmaps();
             } else if (type == Tag.TAG_LIST && named(SECTIONS)) {
@@ -192,10 +188,6 @@ final class SavedChunkReader {
             readName();
             if (type == Tag.TAG_BYTE && named(SECTION_Y)) {
                 y = in.readByte();
-            } else if (type == Tag.TAG_INT && named(SKYLIGHT_STATE)) {
-                section.skyLightState = in.readInt();
-            } else if (type == Tag.TAG_INT && named(BLOCKLIGHT_STATE)) {
-                section.blockLightState = in.readInt();
             } else if (type == Tag.TAG_BYTE_ARRAY && named(SKY_LIGHT)) {
                 section.skyLightAt = takeLightLayer();
             } else if (type == Tag.TAG_BYTE_ARRAY && named(BLOCK_LIGHT)) {
@@ -235,13 +227,13 @@ final class SavedChunkReader {
     private void readBlockPalette(SavedChunk.Section section) throws IOException {
         int element = in.readByte();
         int count = in.readInt();
-        if (element != Tag.TAG_COMPOUND || count < 0) {
+        if ((element != Tag.TAG_COMPOUND && element != Tag.TAG_STRING) || count < 0) {
             skipList(element, count);
             return;
         }
         section.blockPaletteFrom = chunk.blockPaletteTop();
         for (int i = 0; i < count; i++) {
-            chunk.addBlockState(blockState());
+            chunk.addBlockState(element == Tag.TAG_STRING ? namedBlockState() : blockState());
         }
         section.blockPaletteCount = count;
     }
@@ -298,7 +290,7 @@ final class SavedChunkReader {
         int type;
         while ((type = in.readByte()) != Tag.TAG_END) {
             readName();
-            if (type == Tag.TAG_STRING && named(NAME)) {
+            if (type == Tag.TAG_STRING && (named(NAME) || named(WRAPPED))) {
                 name = in.readUTF();
             } else if (type == Tag.TAG_COMPOUND && named(PROPERTIES)) {
                 propertiesAt = in.position();
@@ -308,12 +300,30 @@ final class SavedChunkReader {
             }
         }
 
-        Identifier id = name == null ? null : Identifier.tryParse(name);
-        Block block = id == null ? null : BuiltInRegistries.BLOCK.getOptional(id).orElse(null);
+        Block block = blockByName(name);
         if (block == null) return defaultBlockState;
 
         BlockState state = block.defaultBlockState();
         return propertiesAt < 0 ? state : withProperties(state, block.getStateDefinition(), propertiesAt);
+    }
+
+    private BlockState namedBlockState() throws IOException {
+        int length = in.readUnsignedShort();
+        int at = in.take(length);
+
+        int hash = PaletteCache.hash(in.bytes(), at, length);
+        BlockState cached = blockStates.get(hash, in.bytes(), at, length);
+        if (cached != null) return cached;
+
+        Block block = blockByName(in.string(at, length));
+        BlockState resolved = block == null ? defaultBlockState : block.defaultBlockState();
+        blockStates.put(hash, in.bytes(), at, length, resolved);
+        return resolved;
+    }
+
+    private static Block blockByName(String name) {
+        Identifier id = name == null ? null : Identifier.tryParse(name);
+        return id == null ? null : BuiltInRegistries.BLOCK.getOptional(id).orElse(null);
     }
 
     private BlockState withProperties(BlockState state, StateDefinition<Block, BlockState> definition, int at)

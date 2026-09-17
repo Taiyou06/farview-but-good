@@ -1,4 +1,4 @@
-package net.gensokyoreimagined.farview.region;
+package net.gensokyoreimagined.farview.nms;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInput;
@@ -14,7 +14,7 @@ import java.util.Arrays;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 
-final class ChunkNbtInput implements DataInput {
+public final class ChunkNbtInput implements DataInput {
     private static final int INITIAL_CAPACITY = 128 * 1024;
     private static final int MAX_RETAINED_CAPACITY = 4 * 1024 * 1024;
 
@@ -34,7 +34,7 @@ final class ChunkNbtInput implements DataInput {
     private int position;
     private int limit;
 
-    void fill(InputStream in) throws IOException {
+    public void fill(InputStream in) throws IOException {
         prepare();
         while (true) {
             if (limit == bytes.length) grow();
@@ -44,7 +44,7 @@ final class ChunkNbtInput implements DataInput {
         }
     }
 
-    void inflate(byte[] compressed, int length) throws IOException {
+    public void inflate(byte[] compressed, int length) throws IOException {
         prepare();
         inflater.reset();
         inflater.setInput(compressed, 0, length);
@@ -72,26 +72,26 @@ final class ChunkNbtInput implements DataInput {
         bytes = Arrays.copyOf(bytes, bytes.length * 2);
     }
 
-    byte[] bytes() {
+    public byte[] bytes() {
         return bytes;
     }
 
-    int position() {
+    public int position() {
         return position;
     }
 
-    void position(int at) {
+    public void position(int at) {
         position = at;
     }
 
-    int take(int count) throws EOFException {
+    public int take(int count) throws EOFException {
         int at = position;
         if (count < 0 || limit - at < count) throw new EOFException();
         position = at + count;
         return at;
     }
 
-    boolean equalsAt(byte[] expected, int start, int length) {
+    public boolean equalsAt(byte[] expected, int start, int length) {
         return Arrays.equals(expected, 0, expected.length, bytes, start, start + length);
     }
 
@@ -174,7 +174,7 @@ final class ChunkNbtInput implements DataInput {
         return string(start, length);
     }
 
-    String string(int start, int length) throws IOException {
+    public String string(int start, int length) throws IOException {
         if (length > MAX_CACHED_STRING) return decode(start, length);
 
         int hash = asciiHash(start, length);

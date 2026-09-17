@@ -1,6 +1,7 @@
 package net.gensokyoreimagined.farview;
 
-import net.minecraft.resources.Identifier;
+import net.gensokyoreimagined.farview.nms.BlockEntityPolicy;
+import org.bukkit.NamespacedKey;
 import org.spongepowered.configurate.CommentedConfigurationNode;
 import org.spongepowered.configurate.ConfigurationNode;
 import org.spongepowered.configurate.serialize.SerializationException;
@@ -16,12 +17,6 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
                               BlockEntityPolicy blockEntities) {
     public static final int CLIENT_MAX_VIEW_DISTANCE = 32;
     public static final int MIN_VIEW_DISTANCE = 4;
-
-    public record BlockEntityPolicy(boolean enabled, int maxPerChunk, Set<String> types) {
-        public boolean allows(String identifier) {
-            return enabled && types.contains(identifier);
-        }
-    }
 
     public static final class Defaults {
         public static final boolean ENABLED = true;
@@ -173,7 +168,9 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
         ConfigurationNode be = node.node("block-entities");
         Set<String> beTypes = new LinkedHashSet<>();
         for (String raw : be.node("types").getList(String.class, Defaults.BLOCK_ENTITY_TYPES)) {
-            beTypes.add(Identifier.parse(raw).toString());
+            NamespacedKey key = NamespacedKey.fromString(raw);
+            if (key == null) throw new SerializationException("invalid block entity id " + raw);
+            beTypes.add(key.toString());
         }
 
         return new FarViewSettings(

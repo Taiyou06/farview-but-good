@@ -1,4 +1,4 @@
-package net.gensokyoreimagined.farview.region;
+package net.gensokyoreimagined.farview.nms.v26_3;
 
 import net.minecraft.world.level.chunk.storage.RegionFileVersion;
 

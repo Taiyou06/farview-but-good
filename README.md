@@ -8,6 +8,8 @@ It is on for every player by default at `default-view-distance` (16), capped at 
 
 Per-player send rate adapts to measured ping, jitter and netty backpressure, or a player can pin a fixed speed.
 
+[My Discord Corner](https://discord.gg/ravecxMMNW)
+
 ## Commands
 
 Alias: `/fv`

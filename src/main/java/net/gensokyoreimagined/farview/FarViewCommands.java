@@ -104,11 +104,11 @@ final class FarViewCommands {
                 sender.sendMessage(Component.text("Name a player.", NamedTextColor.RED));
                 return 0;
             }
-            if (!plugin.available(target)) {
-                reply(ctx, target, "Extended view distance is not available here.", NamedTextColor.RED);
-                return 0;
-            }
             body.accept(target, ctx);
+            if (!plugin.available(target)) {
+                reply(ctx, target, "Extended view distance is not available in this world; "
+                    + "settings apply once you are in one where it is.", NamedTextColor.GRAY);
+            }
             return Command.SINGLE_SUCCESS;
         };
     }

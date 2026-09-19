@@ -5,12 +5,21 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
 import java.io.IOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
+import java.util.logging.Logger;
 
 final class FarViewPreferences {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -21,10 +30,15 @@ final class FarViewPreferences {
     }
 
     private final Path file;
+    private final Logger logger;
     private final ConcurrentHashMap<UUID, Prefs> prefs = new ConcurrentHashMap<>();
+    private final AtomicBoolean dirty = new AtomicBoolean();
+    private final ExecutorService writer = Executors.newSingleThreadExecutor(
+        Thread.ofPlatform().name("farview-prefs").daemon().factory());
 
-    FarViewPreferences(Path file) {
+    FarViewPreferences(Path file, Logger logger) {
         this.file = file;
+        this.logger = logger;
         load();
     }
 
@@ -62,12 +76,26 @@ final class FarViewPreferences {
         update(id, p -> new Prefs(p.disabled(), p.distance(), p.manualRate(), value));
     }
 
+    void close() {
+        writer.shutdown();
+        try {
+            if (!writer.awaitTermination(5, TimeUnit.SECONDS)) {
+                logger.warning("timed out saving " + file.getFileName());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private Prefs get(UUID id) {
         return prefs.getOrDefault(id, Prefs.DEFAULT);
     }
 
     private void update(UUID id, UnaryOperator<Prefs> change) {
-        prefs.compute(id, (k, p) -> change.apply(p == null ? Prefs.DEFAULT : p));
+        prefs.compute(id, (k, p) -> {
+            Prefs next = change.apply(p == null ? Prefs.DEFAULT : p);
+            return next.equals(Prefs.DEFAULT) ? null : next;
+        });
         save();
     }
 
@@ -76,12 +104,38 @@ final class FarViewPreferences {
         try {
             Map<UUID, Prefs> loaded = GSON.fromJson(Files.readString(file), TYPE);
             if (loaded != null) prefs.putAll(loaded);
-        } catch (IOException | RuntimeException ignored) {}
+        } catch (IOException | RuntimeException e) {
+            Path broken = file.resolveSibling(file.getFileName() + ".broken");
+            logger.warning("could not read " + file.getFileName() + ", moving it to "
+                + broken.getFileName() + " and starting fresh: " + e);
+            try {
+                Files.move(file, broken, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException ignored) {}
+        }
     }
 
     private void save() {
+        if (!dirty.compareAndSet(false, true)) return;
         try {
-            Files.writeString(file, GSON.toJson(prefs, TYPE.getType()));
-        } catch (IOException ignored) {}
+            writer.execute(this::write);
+        } catch (RejectedExecutionException shutDown) {
+            write();
+        }
+    }
+
+    private void write() {
+        dirty.set(false);
+        String json = GSON.toJson(new HashMap<>(prefs), TYPE.getType());
+        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
+        try {
+            Files.writeString(temp, json);
+            try {
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException unsupported) {
+                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            logger.warning("could not save " + file.getFileName() + ": " + e);
+        }
     }
 }

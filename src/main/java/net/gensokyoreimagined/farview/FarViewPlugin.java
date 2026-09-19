@@ -64,7 +64,7 @@ public final class FarViewPlugin extends JavaPlugin {
         }
         this.configFile = folder.resolve("farview.conf");
         this.configLoader = HoconConfigurationLoader.builder().path(configFile).build();
-        this.preferences = new FarViewPreferences(folder.resolve("preferences.json"));
+        this.preferences = new FarViewPreferences(folder.resolve("preferences.json"), logger);
 
         FarViewCommands.register(this);
         if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
@@ -78,7 +78,11 @@ public final class FarViewPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        stop();
+        try {
+            stop();
+        } finally {
+            if (preferences != null) preferences.close();
+        }
     }
 
     private static final Map<String, String> NMS_MODULES = Map.of(
@@ -150,7 +154,11 @@ public final class FarViewPlugin extends JavaPlugin {
             sessions.clear();
 
             if (scheduler != null) { scheduler.shutdownNow(); scheduler = null; }
-            if (ioPool != null) { ioPool.shutdownNow(); ioPool = null; }
+            if (ioPool != null) {
+                ioPool.shutdownNow();
+                awaitQuietly(ioPool);
+                ioPool = null;
+            }
 
             for (ChunkSource source : sources.values()) source.close();
             sources.clear();
@@ -159,20 +167,44 @@ public final class FarViewPlugin extends JavaPlugin {
         }
     }
 
-    private void initWorlds() {
-        for (World world : Bukkit.getWorlds()) {
-            if (!settings.worlds().contains(world.getName())) continue;
-            sources.put(world.getKey(), nms.openWorld(world, settings.regionReaderCache(),
-                settings.debug() ? logger::info : null));
+    private static void awaitQuietly(ExecutorService pool) {
+        try {
+            pool.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
+    }
+
+    private void initWorlds() {
+        for (World world : Bukkit.getWorlds()) openSource(world);
         if (sources.isEmpty()) {
             logger.warning("none of the allowlisted worlds " + settings.worlds()
-                + " exist; no fake chunks will be sent");
-            return;
+                + " are loaded yet; fake chunks start once one of them loads");
         }
         for (Player player : Bukkit.getOnlinePlayers()) {
             player.getScheduler().run(this, task -> attach(player), null);
         }
+    }
+
+    private boolean openSource(World world) {
+        FarViewSettings current = settings;
+        if (current == null || !current.worlds().contains(world.getName())) return false;
+        boolean[] opened = { false };
+        sources.computeIfAbsent(world.getKey(), key -> {
+            opened[0] = true;
+            return nms.openWorld(world, current.regionReaderCache(), current.debug() ? logger::info : null);
+        });
+        return opened[0];
+    }
+
+    void openWorld(World world) {
+        if (!openSource(world)) return;
+        for (Player player : world.getPlayers()) reapply(player);
+    }
+
+    void closeWorld(World world) {
+        ChunkSource source = sources.remove(world.getKey());
+        if (source != null) source.close();
     }
 
     void attach(Player player) {

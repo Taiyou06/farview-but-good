@@ -7,8 +7,10 @@ import net.gensokyoreimagined.farview.nms.ChunkSource;
 import net.gensokyoreimagined.farview.nms.FarViewNms;
 import net.gensokyoreimagined.farview.nms.SessionHooks;
 import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.game.ClientboundForgetLevelChunkPacket;
 import net.minecraft.network.protocol.game.ClientboundSetChunkCacheRadiusPacket;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.level.ChunkPos;
 import org.bukkit.World;
 import org.bukkit.craftbukkit.CraftWorld;
 import org.bukkit.craftbukkit.entity.CraftPlayer;
@@ -35,6 +37,11 @@ public final class FarViewNmsImpl implements FarViewNms {
     @Override
     public Object chunkRadiusPacket(int radius) {
         return new ClientboundSetChunkCacheRadiusPacket(radius);
+    }
+
+    @Override
+    public Object forgetChunkPacket(int chunkX, int chunkZ) {
+        return new ClientboundForgetLevelChunkPacket(new ChunkPos(chunkX, chunkZ));
     }
 
     @Override

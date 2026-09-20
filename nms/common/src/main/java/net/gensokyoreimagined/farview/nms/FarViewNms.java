@@ -16,5 +16,7 @@ public interface FarViewNms {
 
     Object chunkRadiusPacket(int radius);
 
+    Object forgetChunkPacket(int chunkX, int chunkZ);
+
     ChunkSource openWorld(World world, int readerCacheSize, Consumer<String> skipLog);
 }

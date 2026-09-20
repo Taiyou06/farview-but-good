@@ -37,6 +37,7 @@ final class FarViewSession implements SessionHooks {
 
     private final LongOpenHashSet serverChunks = new LongOpenHashSet();
     private final LongOpenHashSet attempted = new LongOpenHashSet();
+    private final LongOpenHashSet farChunks = new LongOpenHashSet();
     private final LongArrayList pending = new LongArrayList();
     private int cursor;
 
@@ -86,6 +87,7 @@ final class FarViewSession implements SessionHooks {
         execute(() -> {
             fakeRadius = Math.max(0, radius);
             active = fakeRadius > 0;
+            forgetFarChunks(false);
             resetTracking();
             send(plugin.nms().chunkRadiusPacket(effectiveRadius()));
         });
@@ -112,6 +114,7 @@ final class FarViewSession implements SessionHooks {
         long key = Chunk.getChunkKey(chunkX, chunkZ);
         serverChunks.add(key);
         attempted.remove(key);
+        farChunks.remove(key);
     }
 
     public boolean onForget(int chunkX, int chunkZ) {
@@ -123,11 +126,13 @@ final class FarViewSession implements SessionHooks {
             return false;
         }
         attempted.add(key);
+        farChunks.add(key);
         return true;
     }
 
     public void onRespawn(NamespacedKey newDimension) {
         dimension = newDimension;
+        forgetFarChunks(true);
         resetTracking();
         plugin.reapply(player);
     }
@@ -160,10 +165,29 @@ final class FarViewSession implements SessionHooks {
         current.writeAndFlush(packet, current.voidPromise());
     }
 
-    void sendChunk(Object packet) {
-        if (ctx == null || !channel.isActive()) return;
-        quality.onChunkSent();
-        send(packet);
+    void sendChunk(long key, Object packet) {
+        execute(() -> {
+            if (ctx == null || !active || serverChunks.contains(key)
+                || outsideRing(chunkX(key), chunkZ(key))) return;
+            farChunks.add(key);
+            quality.onChunkSent();
+            send(packet);
+        });
+    }
+
+    private void forgetFarChunks(boolean all) {
+        ChannelHandlerContext current = ctx;
+        if (current == null || farChunks.isEmpty()) return;
+        boolean wrote = false;
+        LongIterator it = farChunks.iterator();
+        while (it.hasNext()) {
+            long key = it.nextLong();
+            if (!all && !outsideRing(chunkX(key), chunkZ(key))) continue;
+            it.remove();
+            current.write(plugin.nms().forgetChunkPacket(chunkX(key), chunkZ(key)), current.voidPromise());
+            wrote = true;
+        }
+        if (wrote) current.flush();
     }
 
     private boolean outsideRing(int chunkX, int chunkZ) {
@@ -185,6 +209,7 @@ final class FarViewSession implements SessionHooks {
 
         pruneOutOfRange(serverChunks);
         pruneOutOfRange(attempted);
+        forgetFarChunks(false);
 
         for (long offset : spiral(fakeRadius)) {
             int dx = (int) ((offset >> 20) & 0xFFFFF) - SPIRAL_BIAS;

@@ -257,7 +257,7 @@ public final class FarViewPlugin extends JavaPlugin {
             if (source == null || currentCache == null) return;
 
             FakeChunk chunk = currentCache.get(dimension, chunkKey, key -> load(source, key));
-            if (chunk != null) session.sendChunk(chunk.packet());
+            if (chunk != null) session.sendChunk(chunkKey, chunk.packet());
 
         } catch (UncheckedIOException io) {
             logger.fine("region read failed for " + FarViewSession.chunkX(chunkKey)

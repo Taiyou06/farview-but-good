@@ -7,10 +7,12 @@ import com.google.gson.reflect.TypeToken;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
+import java.util.logging.Logger;
 
 final class FarViewPreferences {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -21,10 +23,12 @@ final class FarViewPreferences {
     }
 
     private final Path file;
+    private final Logger logger;
     private final ConcurrentHashMap<UUID, Prefs> prefs = new ConcurrentHashMap<>();
 
-    FarViewPreferences(Path file) {
+    FarViewPreferences(Path file, Logger logger) {
         this.file = file;
+        this.logger = logger;
         load();
     }
 
@@ -67,7 +71,10 @@ final class FarViewPreferences {
     }
 
     private void update(UUID id, UnaryOperator<Prefs> change) {
-        prefs.compute(id, (k, p) -> change.apply(p == null ? Prefs.DEFAULT : p));
+        prefs.compute(id, (k, p) -> {
+            Prefs next = change.apply(p == null ? Prefs.DEFAULT : p);
+            return next.equals(Prefs.DEFAULT) ? null : next;
+        });
         save();
     }
 
@@ -76,12 +83,25 @@ final class FarViewPreferences {
         try {
             Map<UUID, Prefs> loaded = GSON.fromJson(Files.readString(file), TYPE);
             if (loaded != null) prefs.putAll(loaded);
-        } catch (IOException | RuntimeException ignored) {}
+        } catch (IOException | RuntimeException e) {
+            Path broken = file.resolveSibling(file.getFileName() + ".broken");
+            logger.warning("could not read " + file.getFileName() + ", moving it to "
+                + broken.getFileName() + " and starting fresh: " + e);
+            try {
+                Files.move(file, broken, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException moveFailed) {
+                logger.warning("could not move " + file.getFileName() + ": " + moveFailed);
+            }
+        }
     }
 
-    private void save() {
+    private synchronized void save() {
+        Path temp = file.resolveSibling(file.getFileName() + ".tmp");
         try {
-            Files.writeString(file, GSON.toJson(prefs, TYPE.getType()));
-        } catch (IOException ignored) {}
+            Files.writeString(temp, GSON.toJson(prefs, TYPE.getType()));
+            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            logger.warning("could not save " + file.getFileName() + ": " + e);
+        }
     }
 }

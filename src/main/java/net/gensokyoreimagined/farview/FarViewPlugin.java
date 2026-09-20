@@ -64,7 +64,7 @@ public final class FarViewPlugin extends JavaPlugin {
         }
         this.configFile = folder.resolve("farview.conf");
         this.configLoader = HoconConfigurationLoader.builder().path(configFile).build();
-        this.preferences = new FarViewPreferences(folder.resolve("preferences.json"));
+        this.preferences = new FarViewPreferences(folder.resolve("preferences.json"), logger);
 
         FarViewCommands.register(this);
         if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
@@ -160,19 +160,25 @@ public final class FarViewPlugin extends JavaPlugin {
     }
 
     private void initWorlds() {
-        for (World world : Bukkit.getWorlds()) {
-            if (!settings.worlds().contains(world.getName())) continue;
-            sources.put(world.getKey(), nms.openWorld(world, settings.regionReaderCache(),
-                settings.debug() ? logger::info : null));
-        }
+        for (World world : Bukkit.getWorlds()) openWorld(world);
         if (sources.isEmpty()) {
             logger.warning("none of the allowlisted worlds " + settings.worlds()
-                + " exist; no fake chunks will be sent");
-            return;
+                + " are loaded yet; fake chunks start once one of them loads");
         }
         for (Player player : Bukkit.getOnlinePlayers()) {
             player.getScheduler().run(this, task -> attach(player), null);
         }
+    }
+
+    void openWorld(World world) {
+        if (!settings.worlds().contains(world.getName()) || sources.containsKey(world.getKey())) return;
+        sources.put(world.getKey(), nms.openWorld(world, settings.regionReaderCache(),
+            settings.debug() ? logger::info : null));
+    }
+
+    void closeWorld(World world) {
+        ChunkSource source = sources.remove(world.getKey());
+        if (source != null) source.close();
     }
 
     void attach(Player player) {

@@ -33,6 +33,10 @@ import java.util.List;
 import java.util.Optional;
 
 final class FakeChunkPacketFactory {
+    private static final int LIGHT_STATE_NULL = 0;
+    private static final int LIGHT_STATE_INIT = 2;
+    private static final int LIGHT_STATE_HIDDEN = 3;
+
     private static final StreamCodec<RegistryFriendlyByteBuf, BlockEntityType<?>> BLOCK_ENTITY_TYPE =
         ByteBufCodecs.registry(Registries.BLOCK_ENTITY_TYPE);
 
@@ -146,7 +150,7 @@ final class FakeChunkPacketFactory {
 
         int bits = storedBits(count, minBits);
         if (bits > maxLocalBits) {
-            unpack(strategy, palette, from, count, bytes, dataAt, dataWords).write(out);
+            unpack(strategy, palette, from, count, bytes, dataAt, dataWords, defaultValue).write(out, null, 0);
             return;
         }
 
@@ -229,14 +233,14 @@ final class FakeChunkPacketFactory {
     }
 
     private static <T> PalettedContainer<T> unpack(Strategy<T> strategy, T[] palette, int from, int count,
-                                                   byte[] bytes, int dataAt, int dataWords) {
+                                                   byte[] bytes, int dataAt, int dataWords, T defaultValue) {
         long[] data = new long[dataWords];
         for (int i = 0; i < dataWords; i++) {
             data[i] = (long) LONG_AT.get(bytes, dataAt + i * 8);
         }
         PalettedContainerRO.PackedData<T> packed = new PalettedContainerRO.PackedData<>(
             Arrays.asList(palette).subList(from, from + count), Optional.of(Arrays.stream(data)));
-        return PalettedContainer.unpack(strategy, packed).getOrThrow();
+        return PalettedContainer.unpack(strategy, packed, defaultValue, null).getOrThrow();
     }
 
     private static void writeBlockEntities(RegistryFriendlyByteBuf out, SavedChunk chunk) {
@@ -291,8 +295,10 @@ final class FakeChunkPacketFactory {
             SavedChunk.Section section = saved.section(y);
             if (section == null) continue;
             int index = y - minLightSection;
-            if (source.hasSkyLight() && section.skyLightAt() >= 0) set(masks, sky, index);
-            if (section.blockLightAt() >= 0) set(masks, block, index);
+            if (source.hasSkyLight()) {
+                mark(masks, sky, emptySky, index, section.skyLightState(), section.skyLightAt());
+            }
+            mark(masks, block, emptyBlock, index, section.blockLightState(), section.blockLightAt());
         }
 
         writeMask(out, masks, sky, words);
@@ -301,6 +307,15 @@ final class FakeChunkPacketFactory {
         writeMask(out, masks, emptyBlock, words);
         writeLayers(out, saved, masks, sky, words, minLightSection, maxLightSection, true);
         writeLayers(out, saved, masks, block, words, minLightSection, maxLightSection, false);
+    }
+
+    private static void mark(long[] masks, int mask, int emptyMask, int index, int state, int at) {
+        if (state == LIGHT_STATE_NULL || state == LIGHT_STATE_HIDDEN) return;
+        if (state != LIGHT_STATE_INIT || at < 0) {
+            set(masks, emptyMask, index);
+            return;
+        }
+        set(masks, mask, index);
     }
 
     private static void set(long[] masks, int base, int index) {

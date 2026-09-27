@@ -1,21 +1,29 @@
 package net.gensokyoreimagined.farview.nms.v26_3;
 
+import ca.spottedleaf.dataconverter.minecraft.MCDataConverter;
+import ca.spottedleaf.dataconverter.minecraft.datatypes.MCTypeRegistry;
+import ca.spottedleaf.moonrise.patches.starlight.util.SaveUtil;
 import net.gensokyoreimagined.farview.nms.BlockEntityPolicy;
 import net.gensokyoreimagined.farview.nms.ChunkNbtInput;
 import net.gensokyoreimagined.farview.nms.PaletteCache;
+import net.minecraft.SharedConstants;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderGetter;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.util.datafix.DataFixers;
+import net.minecraft.util.datafix.fixes.References;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
+import net.minecraft.world.level.block.state.StateHolder;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.level.chunk.storage.SerializableChunkData;
@@ -35,20 +43,26 @@ final class SavedChunkReader {
     private static final byte[] STATUS_FULL = key(BuiltInRegistries.CHUNK_STATUS.getKey(ChunkStatus.FULL).toString());
     private static final byte[] STATUS_FULL_BARE = key(BuiltInRegistries.CHUNK_STATUS.getKey(ChunkStatus.FULL).getPath());
     private static final byte[] LIGHT_ON = key(SerializableChunkData.IS_LIGHT_ON_TAG);
+    private static final byte[] STARLIGHT_VERSION = key(SaveUtil.STARLIGHT_VERSION_TAG);
     private static final byte[] HEIGHTMAPS = key(SerializableChunkData.HEIGHTMAPS_TAG);
     private static final byte[] SECTIONS = key(SerializableChunkData.SECTIONS_TAG);
     private static final byte[] BLOCK_ENTITIES = key("block_entities");
     private static final byte[] SECTION_Y = key("Y");
+    private static final byte[] SKYLIGHT_STATE = key(SaveUtil.SKYLIGHT_STATE_TAG);
+    private static final byte[] BLOCKLIGHT_STATE = key(SaveUtil.BLOCKLIGHT_STATE_TAG);
     private static final byte[] SKY_LIGHT = key(SerializableChunkData.SKY_LIGHT_TAG);
     private static final byte[] BLOCK_LIGHT = key(SerializableChunkData.BLOCK_LIGHT_TAG);
     private static final byte[] BLOCK_STATES = key("block_states");
     private static final byte[] BIOMES = key("biomes");
     private static final byte[] PALETTE = key("palette");
     private static final byte[] DATA = key("data");
-    private static final byte[] NAME = key("Name");
-    private static final byte[] PROPERTIES = key("Properties");
+    private static final byte[] NAME = key(NbtUtils.LEGACY_BLOCK_STATE_ID_TAG);
+    private static final byte[] PROPERTIES = key(NbtUtils.LEGACY_BLOCKSTATE_PROPERTY_TAG);
+    private static final byte[] STATE_PROPERTIES = key(StateHolder.PROPERTIES_TAG);
     private static final byte[] WRAPPED = key("");
     private static final byte[] ID = key("id");
+    private static final byte[] DATA_VERSION = key("DataVersion");
+    private static final int CURRENT_DATA_VERSION = SharedConstants.getCurrentVersion().dataVersion().version();
 
     private static final byte[][] CLIENT_HEIGHTMAP_KEYS;
     private static final Heightmap.Types[] CLIENT_HEIGHTMAP_TYPES;
@@ -83,6 +97,7 @@ final class SavedChunkReader {
     private int nameAt;
     private int nameLength;
     private int depth;
+    private int dataVersion;
 
     static SavedChunkReader forThread() {
         return SCRATCH.get();
@@ -114,11 +129,21 @@ final class SavedChunkReader {
     private SavedChunk parse() throws IOException {
         chunk.reset(in.bytes(), minSectionY - 1, maxSectionY - minSectionY + 3);
         depth = 0;
+        dataVersion = -1;
 
         if (in.readByte() != Tag.TAG_COMPOUND) throw new IOException("saved chunk is not a compound");
         skipName();
         readChunk();
+        if (dataVersion < CURRENT_DATA_VERSION) upgradeBlockEntities();
         return chunk;
+    }
+
+    private void upgradeBlockEntities() {
+        List<CompoundTag> kept = chunk.blockEntities();
+        for (int i = 0; i < kept.size(); i++) {
+            kept.set(i, MCDataConverter.convertTag(MCTypeRegistry.TILE_ENTITY, References.BLOCK_ENTITY,
+                DataFixers.getDataFixer(), kept.get(i), dataVersion, CURRENT_DATA_VERSION));
+        }
     }
 
     private void readChunk() throws IOException {
@@ -127,8 +152,13 @@ final class SavedChunkReader {
             readName();
             if (type == Tag.TAG_STRING && named(STATUS)) {
                 readStatus();
-            } else if (type == Tag.TAG_BYTE && named(LIGHT_ON)) {
-                if (in.readByte() != 0) chunk.lightOn();
+            } else if (type == Tag.TAG_INT && named(DATA_VERSION)) {
+                dataVersion = in.readInt();
+            } else if (type == Tag.TAG_INT && named(STARLIGHT_VERSION)) {
+                chunk.starlightVersion(in.readInt());
+            } else if (named(LIGHT_ON)) {
+                chunk.lightOn();
+                skip(type);
             } else if (type == Tag.TAG_COMPOUND && named(HEIGHTMAPS)) {
                 readHeightmaps();
             } else if (type == Tag.TAG_LIST && named(SECTIONS)) {
@@ -188,6 +218,10 @@ final class SavedChunkReader {
             readName();
             if (type == Tag.TAG_BYTE && named(SECTION_Y)) {
                 y = in.readByte();
+            } else if (type == Tag.TAG_INT && named(SKYLIGHT_STATE)) {
+                section.skyLightState = in.readInt();
+            } else if (type == Tag.TAG_INT && named(BLOCKLIGHT_STATE)) {
+                section.blockLightState = in.readInt();
             } else if (type == Tag.TAG_BYTE_ARRAY && named(SKY_LIGHT)) {
                 section.skyLightAt = takeLightLayer();
             } else if (type == Tag.TAG_BYTE_ARRAY && named(BLOCK_LIGHT)) {
@@ -290,9 +324,9 @@ final class SavedChunkReader {
         int type;
         while ((type = in.readByte()) != Tag.TAG_END) {
             readName();
-            if (type == Tag.TAG_STRING && (named(NAME) || named(WRAPPED))) {
+            if (type == Tag.TAG_STRING && (named(ID) || named(NAME) || named(WRAPPED))) {
                 name = in.readUTF();
-            } else if (type == Tag.TAG_COMPOUND && named(PROPERTIES)) {
+            } else if (type == Tag.TAG_COMPOUND && (named(STATE_PROPERTIES) || named(PROPERTIES))) {
                 propertiesAt = in.position();
                 skipCompound();
             } else {

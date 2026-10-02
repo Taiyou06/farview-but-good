@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -163,7 +164,8 @@ public final class FarViewPlugin extends JavaPlugin {
         for (World world : Bukkit.getWorlds()) openWorld(world);
         if (sources.isEmpty()) {
             logger.warning("none of the allowlisted worlds " + settings.worlds()
-                + " are loaded yet; fake chunks start once one of them loads");
+                + " are loaded yet; fake chunks start once one of them loads (loaded worlds: "
+                + Bukkit.getWorlds().stream().map(World::getName).toList() + ")");
         }
         for (Player player : Bukkit.getOnlinePlayers()) {
             player.getScheduler().run(this, task -> attach(player), null);
@@ -171,7 +173,7 @@ public final class FarViewPlugin extends JavaPlugin {
     }
 
     void openWorld(World world) {
-        if (!settings.worlds().contains(world.getName()) || sources.containsKey(world.getKey())) return;
+        if (!settings.worlds().contains(world.getName().toLowerCase(Locale.ROOT)) || sources.containsKey(world.getKey())) return;
         sources.put(world.getKey(), nms.openWorld(world, settings.regionReaderCache(),
             settings.debug() ? logger::info : null));
     }

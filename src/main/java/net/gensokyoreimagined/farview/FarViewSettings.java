@@ -8,7 +8,9 @@ import org.spongepowered.configurate.serialize.SerializationException;
 
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDistance, int defaultViewDistance,
                               int chunksPerTick, int maxInFlight, int ioThreads,
@@ -88,8 +90,8 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
 
         farview.node("enabled").set(Defaults.ENABLED);
         farview.node("worlds").setList(String.class, Defaults.WORLDS)
-            .comment("Worlds allowed to serve fake chunks. Keep worlds handled by other plugins "
-                   + "that rewrite chunk packets out of this list.");
+            .comment("Worlds allowed to serve fake chunks, matched case-insensitively. Keep worlds "
+                   + "handled by other plugins that rewrite chunk packets out of this list.");
         farview.node("max-view-distance").set(Defaults.MAX_VIEW_DISTANCE)
             .comment("Upper bound a player may pick. The vanilla client clamps the server-sent "
                    + "radius, so values above 32 are ignored by the client.");
@@ -175,7 +177,8 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
 
         return new FarViewSettings(
             node.node("enabled").getBoolean(Defaults.ENABLED),
-            Set.copyOf(node.node("worlds").getList(String.class, Defaults.WORLDS)),
+            node.node("worlds").getList(String.class, Defaults.WORLDS).stream()
+                .map(name -> name.toLowerCase(Locale.ROOT)).collect(Collectors.toUnmodifiableSet()),
             max,
             def,
             Math.max(1, node.node("chunks-per-tick").getInt(Defaults.CHUNKS_PER_TICK)),

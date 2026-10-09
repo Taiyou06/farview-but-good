@@ -1,8 +1,9 @@
 package net.gensokyoreimagined.farview;
 
 import net.gensokyoreimagined.farview.nms.ChunkSource;
-import net.gensokyoreimagined.farview.nms.FakeChunk;
 import net.gensokyoreimagined.farview.nms.FarViewNms;
+import net.gensokyoreimagined.farview.nms.OcclusionGraph;
+import net.gensokyoreimagined.farview.nms.PreparedChunk;
 import net.gensokyoreimagined.farview.packet.FakeChunkCache;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
@@ -187,6 +188,10 @@ public final class FarViewPlugin extends JavaPlugin {
         FarViewSession session = FarViewInjector.inject(this, player);
         sessions.put(player.getUniqueId(), session);
         applyPreferences(player, session);
+        player.getScheduler().runAtFixedRate(this, task -> {
+            if (sessions.get(player.getUniqueId()) != session) task.cancel();
+            else session.onEye(player.getEyeLocation());
+        }, null, 1L, 1L);
     }
 
     void detach(Player player) {
@@ -244,28 +249,27 @@ public final class FarViewPlugin extends JavaPlugin {
         }
     }
 
-    void submitRead(FarViewSession session, long chunkKey, int held) {
+    void submitRead(FarViewSession session, long chunkKey) {
         ExecutorService pool = ioPool;
         if (pool == null) {
-            session.readFinished(held);
+            session.readFinished();
             return;
         }
         try {
-            pool.execute(() -> runRead(session, chunkKey, held));
+            pool.execute(() -> runRead(session, chunkKey));
         } catch (RejectedExecutionException rejected) {
-            session.readFinished(held);
+            session.readFinished();
         }
     }
 
-    private void runRead(FarViewSession session, long chunkKey, int held) {
+    private void runRead(FarViewSession session, long chunkKey) {
         try {
             NamespacedKey dimension = session.dimension();
             ChunkSource source = sources.get(dimension);
             FakeChunkCache currentCache = cache;
             if (source == null || currentCache == null) return;
 
-            FakeChunk chunk = currentCache.get(dimension, chunkKey, key -> load(source, key));
-            if (chunk != null) session.sendChunk(chunkKey, chunk.packet());
+            session.chunkRead(chunkKey, currentCache.get(dimension, chunkKey, key -> load(source, key)));
 
         } catch (UncheckedIOException io) {
             logger.fine("region read failed for " + FarViewSession.chunkX(chunkKey)
@@ -274,14 +278,81 @@ public final class FarViewPlugin extends JavaPlugin {
             logger.warning("could not build chunk " + FarViewSession.chunkX(chunkKey)
                 + "," + FarViewSession.chunkZ(chunkKey) + ": " + t);
         } finally {
-            session.readFinished(held);
+            session.readFinished();
         }
     }
 
-    private FakeChunk load(ChunkSource source, long chunkKey) {
+    void submitBuild(FarViewSession session, long chunkKey, long[] realSections, int held) {
+        ExecutorService pool = ioPool;
+        if (pool == null) {
+            session.buildFinished(chunkKey, held);
+            return;
+        }
+        try {
+            pool.execute(() -> runBuild(session, chunkKey, realSections, held));
+        } catch (RejectedExecutionException rejected) {
+            session.buildFinished(chunkKey, held);
+        }
+    }
+
+    private void runBuild(FarViewSession session, long chunkKey, long[] realSections, int held) {
+        try {
+            NamespacedKey dimension = session.dimension();
+            ChunkSource source = sources.get(dimension);
+            FakeChunkCache currentCache = cache;
+            if (source == null || currentCache == null) return;
+
+            PreparedChunk chunk = currentCache.get(dimension, chunkKey, key -> load(source, key));
+            if (chunk != null) session.sendChunk(chunkKey, source.packet(chunk, realSections), realSections);
+
+        } catch (UncheckedIOException io) {
+            logger.fine("region read failed for " + FarViewSession.chunkX(chunkKey)
+                + "," + FarViewSession.chunkZ(chunkKey) + ": " + io.getMessage());
+        } catch (Throwable t) {
+            logger.warning("could not build chunk " + FarViewSession.chunkX(chunkKey)
+                + "," + FarViewSession.chunkZ(chunkKey) + ": " + t);
+        } finally {
+            session.buildFinished(chunkKey, held);
+        }
+    }
+
+    boolean submitTrace(FarViewSession session, double x, double y, double z, int centerX, int centerZ,
+                        int radius, int generation, short[][] columns, long[] masks) {
+        ExecutorService pool = ioPool;
+        if (pool == null) return false;
+        try {
+            pool.execute(() -> runTrace(session, x, y, z, centerX, centerZ, radius, generation, columns, masks));
+            return true;
+        } catch (RejectedExecutionException rejected) {
+            return false;
+        }
+    }
+
+    private void runTrace(FarViewSession session, double x, double y, double z, int centerX, int centerZ,
+                          int radius, int generation, short[][] columns, long[] masks) {
+        int width = radius * 2 + 1;
+        long[] traced = masks;
+        int words = 0;
+        try {
+            ChunkSource source = sources.get(session.dimension());
+            if (source != null) {
+                int sections = source.sectionCount();
+                int needed = width * width * OcclusionGraph.words(sections);
+                if (traced.length < needed) traced = new long[needed];
+                OcclusionGraph.forThread().trace(x, y, z, centerX, centerZ, radius,
+                    source.minSectionY(), sections, settings.includeHeightmapOnOcclusion(), columns, traced);
+                words = OcclusionGraph.words(sections);
+            }
+        } catch (Throwable t) {
+            logger.warning("occlusion trace failed, sending every section: " + t);
+        }
+        session.traced(x, y, z, centerX, centerZ, radius, words, generation, traced);
+    }
+
+    private PreparedChunk load(ChunkSource source, long chunkKey) {
         try {
             return source.read(FarViewSession.chunkX(chunkKey), FarViewSession.chunkZ(chunkKey),
-                settings.blockEntities(), settings.requireSavedLight());
+                settings.blockEntities(), settings.requireSavedLight(), settings.sectionCulling());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

@@ -15,7 +15,8 @@ import java.util.stream.Collectors;
 public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDistance, int defaultViewDistance,
                               int chunksPerTick, int maxInFlight, int ioThreads,
                               long cacheMaxBytes, long cacheExpireSeconds, int regionReaderCache,
-                              boolean requireSavedLight, boolean debug, RatePolicy rate,
+                              boolean requireSavedLight, boolean sectionCulling, boolean includeHeightmapOnOcclusion,
+                              boolean debug, RatePolicy rate,
                               BlockEntityPolicy blockEntities) {
     public static final int CLIENT_MAX_VIEW_DISTANCE = 32;
     public static final int MIN_VIEW_DISTANCE = 4;
@@ -32,6 +33,8 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
         public static final long CACHE_EXPIRE_SECONDS = 300L;
         public static final int REGION_READER_CACHE = 32;
         public static final boolean REQUIRE_SAVED_LIGHT = true;
+        public static final boolean SECTION_CULLING = true;
+        public static final boolean INCLUDE_HEIGHTMAP_ON_OCCLUSION = true;
         public static final boolean DEBUG = false;
 
         public static final boolean RATE_AUTO = true;
@@ -115,6 +118,8 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
             .comment("Open region files kept per world.");
         farview.node("require-saved-light").set(Defaults.REQUIRE_SAVED_LIGHT)
             .comment("Skip chunks whose saved light is missing or stale instead of sending them black.");
+        farview.node("section-culling").set(Defaults.SECTION_CULLING);
+        farview.node("include-heightmap-on-occlusion").set(Defaults.INCLUDE_HEIGHTMAP_ON_OCCLUSION);
         farview.node("debug").set(Defaults.DEBUG)
             .comment("Log why individual chunks are skipped. Turn this on to diagnose holes in "
                    + "the fake ring, then turn it back off; it is one line per skipped chunk.");
@@ -188,6 +193,8 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
             Math.max(1L, node.node("cache-expire-seconds").getLong(Defaults.CACHE_EXPIRE_SECONDS)),
             Math.max(1, node.node("region-reader-cache").getInt(Defaults.REGION_READER_CACHE)),
             node.node("require-saved-light").getBoolean(Defaults.REQUIRE_SAVED_LIGHT),
+            node.node("section-culling").getBoolean(Defaults.SECTION_CULLING),
+            node.node("include-heightmap-on-occlusion").getBoolean(Defaults.INCLUDE_HEIGHTMAP_ON_OCCLUSION),
             node.node("debug").getBoolean(Defaults.DEBUG),
             loadRate(node.node("rate")),
             new BlockEntityPolicy(

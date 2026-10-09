@@ -3,7 +3,7 @@ package net.gensokyoreimagined.farview.nms.v1_21_8;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
 import net.gensokyoreimagined.farview.nms.BlockEntityPolicy;
 import net.gensokyoreimagined.farview.nms.ChunkSource;
-import net.gensokyoreimagined.farview.nms.FakeChunk;
+import net.gensokyoreimagined.farview.nms.PreparedChunk;
 import net.minecraft.core.Holder;
 import net.minecraft.core.IdMap;
 import net.minecraft.core.Registry;
@@ -47,8 +47,11 @@ final class WorldRegionSource implements ChunkSource {
         this.skipLog = skipLog;
     }
 
-    int minSectionY() { return minSectionY; }
+    @Override
+    public int minSectionY() { return minSectionY; }
     int maxSectionY() { return maxSectionY; }
+    @Override
+    public int sectionCount() { return maxSectionY - minSectionY + 1; }
     boolean hasSkyLight() { return hasSkyLight; }
     RegistryAccess registryAccess() { return registryAccess; }
     IdMap<BlockState> blockIds() { return Block.BLOCK_STATE_REGISTRY; }
@@ -57,18 +60,23 @@ final class WorldRegionSource implements ChunkSource {
     Holder<Biome> defaultBiome() { return defaultBiome; }
 
     @Override
-    public FakeChunk read(int chunkX, int chunkZ, BlockEntityPolicy blockEntities, boolean requireSavedLight)
-        throws IOException {
+    public PreparedChunk read(int chunkX, int chunkZ, BlockEntityPolicy blockEntities, boolean requireSavedLight,
+                              boolean cullSections) throws IOException {
         SavedChunk saved = readChunk(chunkX, chunkZ, blockEntities);
         if (saved == null) return skip(chunkX, chunkZ, "not saved to disk");
         if (!saved.full()) return skip(chunkX, chunkZ, "status is not full");
         if (requireSavedLight && !saved.hasValidLight()) {
             return skip(chunkX, chunkZ, "saved light is missing or stale");
         }
-        return FakeChunkPacketFactory.build(this, chunkX, chunkZ, saved);
+        return FakeChunkPacketFactory.prepare(this, chunkX, chunkZ, saved, cullSections);
     }
 
-    private FakeChunk skip(int chunkX, int chunkZ, String reason) {
+    @Override
+    public Object packet(PreparedChunk prepared, long[] realSections) {
+        return FakeChunkPacketFactory.packet(this, prepared, realSections);
+    }
+
+    private PreparedChunk skip(int chunkX, int chunkZ, String reason) {
         if (skipLog != null) skipLog.accept("skipped chunk " + chunkX + "," + chunkZ + ": " + reason);
         return null;
     }

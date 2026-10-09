@@ -2,7 +2,8 @@ package net.gensokyoreimagined.farview.nms.v1_21_11;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import net.gensokyoreimagined.farview.nms.FakeChunk;
+import net.gensokyoreimagined.farview.nms.PreparedChunk;
+import net.gensokyoreimagined.farview.nms.SectionFaces;
 import net.minecraft.core.IdMap;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -13,7 +14,6 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.game.ClientboundLevelChunkWithLightPacket;
-import net.minecraft.network.protocol.game.ClientboundLightUpdatePacketData;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -50,11 +50,12 @@ final class FakeChunkPacketFactory {
 
     private static final ThreadLocal<ByteBuf> PACKET_SCRATCH =
         ThreadLocal.withInitial(() -> Unpooled.buffer(SCRATCH_INITIAL_BYTES));
-    private static final ThreadLocal<ByteBuf> SECTION_SCRATCH =
-        ThreadLocal.withInitial(() -> Unpooled.buffer(SCRATCH_INITIAL_BYTES));
 
     private static final ThreadLocal<int[]> HISTOGRAM_SCRATCH =
         ThreadLocal.withInitial(() -> new int[1 << MAX_LOCAL_BLOCK_BITS]);
+    private static final ThreadLocal<boolean[]> SOLID_SCRATCH =
+        ThreadLocal.withInitial(() -> new boolean[1 << MAX_LOCAL_BLOCK_BITS]);
+    private static final ThreadLocal<long[]> COUNTS_SCRATCH = ThreadLocal.withInitial(() -> new long[0]);
 
     private static final ThreadLocal<long[]> MASK_SCRATCH = ThreadLocal.withInitial(() -> new long[4]);
 
@@ -63,22 +64,85 @@ final class FakeChunkPacketFactory {
 
     private FakeChunkPacketFactory() {}
 
-    static FakeChunk build(WorldRegionSource source, int chunkX, int chunkZ, SavedChunk saved) {
+    static PreparedChunk prepare(WorldRegionSource source, int chunkX, int chunkZ, SavedChunk saved,
+                                 boolean cullSections) {
         RegistryFriendlyByteBuf out = new RegistryFriendlyByteBuf(scratch(PACKET_SCRATCH), source.registryAccess());
         out.writeInt(chunkX);
         out.writeInt(chunkZ);
-        writeChunkData(out, source, saved);
+        writeHeightmaps(out, saved);
+
+        int minSectionY = source.minSectionY();
+        int sections = source.sectionCount();
+        int entryCount = source.containerFactory().blockStatesStrategy().entryCount();
+        long[] counts = counts(sections);
+        SectionFaces faces = cullSections ? SectionFaces.forThread().begin(sections) : null;
+        for (int i = 0; i < sections; i++) {
+            SavedChunk.Section section = saved.section(minSectionY + i);
+            int blockCount = section == null ? -1 : section.blockPaletteCount();
+            if (blockCount < 0) {
+                counts[i] = 0L;
+                if (faces != null) faces.openSection(i);
+                continue;
+            }
+            counts[i] = countBlocks(saved.blockPalette(), section.blockPaletteFrom(), blockCount, saved.bytes(),
+                section.blockDataAt(), section.blockDataWords(),
+                storedBits(blockCount, MIN_BLOCK_BITS), entryCount, faces, i);
+        }
+
+        int[] pieces = new int[sections * 4 + 2];
+        pieces[0] = out.writerIndex();
+        for (int i = 0; i < sections; i++) {
+            SavedChunk.Section section = saved.section(minSectionY + i);
+            int at = 1 + i * 4;
+            pieces[at] = out.writerIndex();
+            writeSection(out, source.containerFactory(), saved, section, counts[i], -1);
+            pieces[at + 1] = out.writerIndex();
+            int filler = faces == null ? -1 : faces.filler(i);
+            if (filler >= 0 && section.blockPaletteCount() > 1) {
+                pieces[at + 2] = out.writerIndex();
+                writeSection(out, source.containerFactory(), saved, section, counts[i], filler);
+                pieces[at + 3] = out.writerIndex();
+            } else {
+                pieces[at + 2] = pieces[at];
+                pieces[at + 3] = pieces[at + 1];
+            }
+        }
+        pieces[pieces.length - 1] = out.writerIndex();
+        writeBlockEntities(out, saved);
         writeLightData(out, source, saved);
+
+        byte[] data = new byte[out.writerIndex()];
+        out.getBytes(0, data);
+        return new PreparedChunk(data, pieces, faces == null ? null : faces.faces(surface(saved, sections)));
+    }
+
+    static ClientboundLevelChunkWithLightPacket packet(WorldRegionSource source, PreparedChunk prepared,
+                                                      long[] realSections) {
+        RegistryFriendlyByteBuf out = new RegistryFriendlyByteBuf(scratch(PACKET_SCRATCH), source.registryAccess());
+        byte[] data = prepared.data();
+        int[] pieces = prepared.pieces();
+        int sections = (pieces.length - 2) / 4;
+        out.writeBytes(data, 0, pieces[0]);
+        int size = 0;
+        for (int i = 0; i < sections; i++) {
+            int at = piece(i, realSections);
+            size += pieces[at + 1] - pieces[at];
+        }
+        out.writeVarInt(size);
+        for (int i = 0; i < sections; i++) {
+            int at = piece(i, realSections);
+            out.writeBytes(data, pieces[at], pieces[at + 1] - pieces[at]);
+        }
+        int tail = pieces[pieces.length - 1];
+        out.writeBytes(data, tail, data.length - tail);
 
         ClientboundLevelChunkWithLightPacket packet = ClientboundLevelChunkWithLightPacket.STREAM_CODEC.decode(out);
         packet.setReady(true);
-        return new FakeChunk(packet, weigh(packet));
+        return packet;
     }
 
-    private static int weigh(ClientboundLevelChunkWithLightPacket packet) {
-        ClientboundLightUpdatePacketData light = packet.getLightData();
-        return packet.getChunkData().getReadBuffer().readableBytes()
-            + (light.getSkyUpdates().size() + light.getBlockUpdates().size()) * SavedChunk.DATA_LAYER_BYTES;
+    private static int piece(int section, long[] realSections) {
+        return 1 + section * 4 + ((realSections[section >>> 6] >>> section & 1L) != 0L ? 0 : 2);
     }
 
     private static ByteBuf scratch(ThreadLocal<ByteBuf> holder) {
@@ -88,19 +152,6 @@ final class FakeChunkPacketFactory {
             holder.set(buffer);
         }
         return buffer.clear();
-    }
-
-    private static void writeChunkData(RegistryFriendlyByteBuf out, WorldRegionSource source, SavedChunk saved) {
-        writeHeightmaps(out, saved);
-
-        FriendlyByteBuf sectionBuf = new FriendlyByteBuf(scratch(SECTION_SCRATCH));
-        for (int y = source.minSectionY(); y <= source.maxSectionY(); y++) {
-            writeSection(sectionBuf, source.containerFactory(), saved, saved.section(y));
-        }
-        out.writeVarInt(sectionBuf.readableBytes());
-        out.writeBytes(sectionBuf);
-
-        writeBlockEntities(out, saved);
     }
 
     private static void writeHeightmaps(RegistryFriendlyByteBuf out, SavedChunk saved) {
@@ -113,13 +164,9 @@ final class FakeChunkPacketFactory {
     }
 
     private static void writeSection(FriendlyByteBuf out, PalettedContainerFactory factory,
-                                     SavedChunk saved, SavedChunk.Section section) {
+                                     SavedChunk saved, SavedChunk.Section section, long counts, int filler) {
         Strategy<BlockState> blockStrategy = factory.blockStatesStrategy();
-        int blockCount = section == null ? -1 : section.blockPaletteCount();
-        long counts = blockCount < 0 ? 0L
-            : countBlocks(saved.blockPalette(), section.blockPaletteFrom(), blockCount, saved.bytes(),
-                section.blockDataAt(), section.blockDataWords(),
-                storedBits(blockCount, MIN_BLOCK_BITS), blockStrategy.entryCount());
+        if (filler >= 0) counts = tally(saved.blockPalette()[filler], blockStrategy.entryCount(), 0L);
 
         out.writeShort((int) (counts >>> 32));
         if (section == null) {
@@ -127,10 +174,14 @@ final class FakeChunkPacketFactory {
             writeAbsent(out, factory.biomeStrategy(), factory.defaultBiome());
             return;
         }
-        writeContainer(out, blockStrategy, factory.defaultBlockState(),
-            saved.blockPalette(), section.blockPaletteFrom(), blockCount,
-            saved.bytes(), section.blockDataAt(), section.blockDataWords(),
-            MIN_BLOCK_BITS, MAX_LOCAL_BLOCK_BITS);
+        if (filler >= 0) {
+            writeAbsent(out, blockStrategy, saved.blockPalette()[filler]);
+        } else {
+            writeContainer(out, blockStrategy, factory.defaultBlockState(),
+                saved.blockPalette(), section.blockPaletteFrom(), section.blockPaletteCount(),
+                saved.bytes(), section.blockDataAt(), section.blockDataWords(),
+                MIN_BLOCK_BITS, MAX_LOCAL_BLOCK_BITS);
+        }
         writeContainer(out, factory.biomeStrategy(), factory.defaultBiome(),
             saved.biomePalette(), section.biomePaletteFrom(), section.biomePaletteCount(),
             saved.bytes(), section.biomeDataAt(), section.biomeDataWords(),
@@ -174,30 +225,49 @@ final class FakeChunkPacketFactory {
     }
 
     private static long countBlocks(BlockState[] palette, int from, int count, byte[] bytes, int dataAt, int dataWords,
-                            int bits, int entryCount) {
-        if (bits == 0) return tally(palette[from], entryCount, 0L);
+                            int bits, int entryCount, SectionFaces faces, int section) {
+        if (count == 0) throw new IllegalArgumentException("saved section holds an empty palette");
+        if (bits == 0) {
+            if (faces != null) {
+                if (palette[from].isSolidRender()) faces.filler(section, from);
+                else faces.openSection(section);
+            }
+            return tally(palette[from], entryCount, 0L);
+        }
 
         checkPacked(dataWords, entryCount, bits);
         int[] histogram = histogram(1 << bits);
+        boolean[] solid = faces == null ? null : solid(palette, from, count, 1 << bits);
         long mask = (1L << bits) - 1L;
         int valuesPerLong = 64 / bits;
-        for (int word = 0, index = 0; index < entryCount; word++, index += valuesPerLong) {
+        long open = 0L;
+        for (int word = 0, index = 0; index < entryCount; word++) {
             long cell = (long) LONG_AT.get(bytes, dataAt + word * 8);
             int n = Math.min(valuesPerLong, entryCount - index);
-            for (int i = 0; i < n; i++) {
-                histogram[(int) (cell & mask)]++;
+            for (int i = 0; i < n; i++, index++) {
+                int id = (int) (cell & mask);
+                histogram[id]++;
                 cell >>>= bits;
+                if (solid == null) continue;
+                if (!solid[id]) open |= 1L << index;
+                if ((index & 63) == 63) {
+                    faces.openWord(section, index >>> 6, open);
+                    open = 0L;
+                }
             }
         }
 
         long counts = 0L;
+        int filler = -1;
         for (int id = 0; id < (1 << bits); id++) {
             if (histogram[id] == 0) continue;
             if (id >= count) {
                 throw new IllegalArgumentException("saved section indexes palette entry " + id + " of " + count);
             }
             counts = tally(palette[from + id], histogram[id], counts);
+            if (solid != null && solid[id] && (filler < 0 || histogram[id] > histogram[filler])) filler = id;
         }
+        if (filler >= 0) faces.filler(section, from + filler);
         return counts;
     }
 
@@ -216,6 +286,43 @@ final class FakeChunkPacketFactory {
         }
         Arrays.fill(histogram, 0, size, 0);
         return histogram;
+    }
+
+    private static boolean[] solid(BlockState[] palette, int from, int count, int size) {
+        boolean[] solid = SOLID_SCRATCH.get();
+        if (solid.length < size) {
+            solid = new boolean[size];
+            SOLID_SCRATCH.set(solid);
+        }
+        for (int id = 0; id < count; id++) {
+            solid[id] = palette[from + id].isSolidRender();
+        }
+        return solid;
+    }
+
+    private static long[] counts(int sections) {
+        long[] counts = COUNTS_SCRATCH.get();
+        if (counts.length < sections) {
+            counts = new long[sections];
+            COUNTS_SCRATCH.set(counts);
+        }
+        return counts;
+    }
+
+    private static int surface(SavedChunk saved, int sections) {
+        for (int i = 0; i < saved.heightmapCount(); i++) {
+            if (saved.heightmapType(i) != Heightmap.Types.WORLD_SURFACE) continue;
+            int bits = Mth.ceillog2(sections * 16 + 1);
+            int perWord = 64 / bits;
+            long mask = (1L << bits) - 1;
+            int lowest = Integer.MAX_VALUE;
+            for (int column = 0; column < 256; column++) {
+                long word = (long) LONG_AT.get(saved.bytes(), saved.heightmapAt(i) + column / perWord * 8);
+                lowest = Math.min(lowest, (int) (word >>> (column % perWord * bits) & mask));
+            }
+            return Math.max(0, (lowest - 1) >> 4);
+        }
+        return sections;
     }
 
     private static int storedBits(int paletteSize, int minBits) {

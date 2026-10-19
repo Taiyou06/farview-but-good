@@ -12,7 +12,8 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDistance, int defaultViewDistance,
+public record FarViewSettings(boolean enabled, Set<String> worlds, boolean worldsBlocklist,
+                              int maxViewDistance, int defaultViewDistance,
                               int chunksPerTick, int maxInFlight, int ioThreads,
                               long cacheMaxBytes, long cacheExpireSeconds, int regionReaderCache,
                               boolean requireSavedLight, boolean sectionCulling, boolean includeHeightmapOnOcclusion,
@@ -24,6 +25,7 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
     public static final class Defaults {
         public static final boolean ENABLED = true;
         public static final List<String> WORLDS = List.of("world");
+        public static final boolean WORLDS_BLOCKLIST = false;
         public static final int MAX_VIEW_DISTANCE = 32;
         public static final int DEFAULT_VIEW_DISTANCE = 16;
         public static final int CHUNKS_PER_TICK = 64;
@@ -80,6 +82,10 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
         return Math.clamp(requested, MIN_VIEW_DISTANCE, maxViewDistance);
     }
 
+    public boolean servesWorld(String name) {
+        return worlds.contains(name.toLowerCase(Locale.ROOT)) != worldsBlocklist;
+    }
+
     public static CommentedConfigurationNode seed(CommentedConfigurationNode node) throws SerializationException {
         CommentedConfigurationNode farview = node.node("farview");
         farview.comment(
@@ -95,6 +101,7 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
         farview.node("worlds").setList(String.class, Defaults.WORLDS)
             .comment("Worlds allowed to serve fake chunks, matched case-insensitively. Keep worlds "
                    + "handled by other plugins that rewrite chunk packets out of this list.");
+        farview.node("worlds-blocklist").set(Defaults.WORLDS_BLOCKLIST);
         farview.node("max-view-distance").set(Defaults.MAX_VIEW_DISTANCE)
             .comment("Upper bound a player may pick. The vanilla client clamps the server-sent "
                    + "radius, so values above 32 are ignored by the client.");
@@ -184,6 +191,7 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, int maxViewDi
             node.node("enabled").getBoolean(Defaults.ENABLED),
             node.node("worlds").getList(String.class, Defaults.WORLDS).stream()
                 .map(name -> name.toLowerCase(Locale.ROOT)).collect(Collectors.toUnmodifiableSet()),
+            node.node("worlds-blocklist").getBoolean(Defaults.WORLDS_BLOCKLIST),
             max,
             def,
             Math.max(1, node.node("chunks-per-tick").getInt(Defaults.CHUNKS_PER_TICK)),

@@ -179,6 +179,9 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, boolean world
         int def = Math.clamp(node.node("default-view-distance").getInt(Defaults.DEFAULT_VIEW_DISTANCE),
             MIN_VIEW_DISTANCE, max);
 
+        ConfigurationNode worlds = node.node("worlds");
+        List<String> worldList = worlds.virtual() ? Defaults.WORLDS : worlds.getList(String.class);
+
         ConfigurationNode be = node.node("block-entities");
         Set<String> beTypes = new LinkedHashSet<>();
         for (String raw : be.node("types").getList(String.class, Defaults.BLOCK_ENTITY_TYPES)) {
@@ -189,7 +192,7 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, boolean world
 
         return new FarViewSettings(
             node.node("enabled").getBoolean(Defaults.ENABLED),
-            node.node("worlds").getList(String.class, Defaults.WORLDS).stream()
+            worldList.stream()
                 .map(name -> name.toLowerCase(Locale.ROOT)).collect(Collectors.toUnmodifiableSet()),
             node.node("worlds-blocklist").getBoolean(Defaults.WORLDS_BLOCKLIST),
             max,

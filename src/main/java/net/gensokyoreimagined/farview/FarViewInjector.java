@@ -1,7 +1,7 @@
 package net.gensokyoreimagined.farview;
 
 import io.netty.channel.Channel;
-import io.netty.channel.ChannelPipeline;
+import io.netty.channel.DefaultChannelPipeline;
 import net.gensokyoreimagined.farview.nms.FarViewNms;
 import org.bukkit.entity.Player;
 
@@ -24,9 +24,9 @@ final class FarViewInjector {
     }
 
     static void uninject(FarViewPlugin plugin, Player player) {
-        ChannelPipeline pipeline = plugin.nms().channel(player).pipeline();
+        DefaultChannelPipeline pipeline = (DefaultChannelPipeline) plugin.nms().channel(player).pipeline();
         for (String name : new String[] { FarViewNms.OUTBOUND_HANDLER, FarViewNms.INBOUND_HANDLER, FarViewWireMeter.NAME }) {
-            if (pipeline.context(name) != null) pipeline.remove(name);
+            pipeline.removeIfExists(name);
         }
     }
 }

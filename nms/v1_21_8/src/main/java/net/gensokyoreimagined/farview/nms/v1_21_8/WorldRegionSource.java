@@ -1,6 +1,8 @@
 package net.gensokyoreimagined.farview.nms.v1_21_8;
 
+import io.papermc.paper.configuration.WorldConfiguration;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ReferenceOpenHashSet;
 import net.gensokyoreimagined.farview.nms.BlockEntityPolicy;
 import net.gensokyoreimagined.farview.nms.ChunkSource;
 import net.gensokyoreimagined.farview.nms.PreparedChunk;
@@ -17,9 +19,11 @@ import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import org.bukkit.World;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.function.Consumer;
 
 final class WorldRegionSource implements ChunkSource {
@@ -31,6 +35,9 @@ final class WorldRegionSource implements ChunkSource {
     private final Registry<Biome> biomes;
     private final Holder<Biome> defaultBiome;
     private final Consumer<String> skipLog;
+    private final Set<Block> hiddenBlocks;
+    private final int hiddenBelowSectionY;
+    private final World.Environment environment;
 
     private final int readerCacheSize;
     private final Long2ObjectLinkedOpenHashMap<RegionReader> readers = new Long2ObjectLinkedOpenHashMap<>();
@@ -45,6 +52,10 @@ final class WorldRegionSource implements ChunkSource {
         this.defaultBiome = this.biomes.getOrThrow(Biomes.PLAINS);
         this.readerCacheSize = Math.max(1, readerCacheSize);
         this.skipLog = skipLog;
+        WorldConfiguration.Anticheat.AntiXray antiXray = level.paperConfig().anticheat.antiXray;
+        this.hiddenBlocks = antiXray.enabled ? new ReferenceOpenHashSet<>(antiXray.hiddenBlocks) : Set.of();
+        this.hiddenBelowSectionY = antiXray.maxBlockHeight >> 4;
+        this.environment = level.getWorld().getEnvironment();
     }
 
     @Override
@@ -68,7 +79,25 @@ final class WorldRegionSource implements ChunkSource {
         if (requireSavedLight && !saved.hasValidLight()) {
             return skip(chunkX, chunkZ, "saved light is missing or stale");
         }
+        if (!hiddenBlocks.isEmpty()) hideAntiXrayBlocks(saved);
         return FakeChunkPacketFactory.prepare(this, chunkX, chunkZ, saved, cullSections);
+    }
+
+    private void hideAntiXrayBlocks(SavedChunk saved) {
+        BlockState[] palette = saved.blockPalette();
+        for (int y = minSectionY; y <= maxSectionY && y < hiddenBelowSectionY; y++) {
+            SavedChunk.Section section = saved.section(y);
+            if (section == null) continue;
+            BlockState stone = switch (environment) {
+                case NETHER -> Blocks.NETHERRACK.defaultBlockState();
+                case THE_END -> Blocks.END_STONE.defaultBlockState();
+                default -> y < 0 ? Blocks.DEEPSLATE.defaultBlockState() : Blocks.STONE.defaultBlockState();
+            };
+            int end = section.blockPaletteFrom() + section.blockPaletteCount();
+            for (int i = section.blockPaletteFrom(); i < end; i++) {
+                if (hiddenBlocks.contains(palette[i].getBlock())) palette[i] = stone;
+            }
+        }
     }
 
     @Override

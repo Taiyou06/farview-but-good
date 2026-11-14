@@ -195,7 +195,7 @@ final class FarViewSession implements SessionHooks {
         plugin.reapply(player);
     }
 
-    public void pump(FarViewSettings settings) {
+    public void pump(FarViewSettings settings, boolean underGlobalCap) {
         quality.tick(settings.rate(), autoRate, rateCapKbps);
 
         if (!active || !centerKnown) return;
@@ -214,6 +214,7 @@ final class FarViewSession implements SessionHooks {
 
         if (culling) trace();
 
+        if (!underGlobalCap) return;
         int builds = Math.min(settings.chunksPerTick(), settings.maxInFlight() - inFlight.get());
         LongIterator again = resend.iterator();
         while (builds > 0 && again.hasNext() && quality.hasTokens()) {

@@ -46,6 +46,7 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, boolean world
         public static final int RATE_INCREASE_KBPS_PER_SECOND = 32;
         public static final double RATE_SPIKE_MULTIPLIER = 2.0;
         public static final int RATE_JITTER_THRESHOLD_MS = 60;
+        public static final int RATE_GLOBAL_MAX_KBPS = 0;
 
         public static final List<Integer> RATE_LADDER_KBPS = List.of(
             32, 48, 64, 96, 128, 192, 256, 384, 512, 768,
@@ -63,7 +64,7 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, boolean world
 
     public record RatePolicy(boolean auto, int minKbps, int maxKbps, int defaultKbps,
                              int increaseKbpsPerSecond, double spikeMultiplier, int jitterThresholdMs,
-                             int[] ladder) {
+                             int[] ladder, int globalMaxKbps) {
         public int clampKbps(int requested) {
             return Math.clamp(requested, minKbps, maxKbps);
         }
@@ -160,6 +161,7 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, boolean world
         rate.node("ladder-kbps").setList(Integer.class, Defaults.RATE_LADDER_KBPS)
             .comment("Speeds a player may pick with /farview rate when auto is off; a typed value "
                    + "snaps to the nearest step. Steps outside min-kbps..max-kbps are hidden.");
+        rate.node("global-max-kbps").set(Defaults.RATE_GLOBAL_MAX_KBPS);
 
         CommentedConfigurationNode blockEntities = farview.node("block-entities");
         blockEntities.comment(
@@ -232,6 +234,7 @@ public record FarViewSettings(boolean enabled, Set<String> worlds, boolean world
             Math.max(1, node.node("increase-kbps-per-second").getInt(Defaults.RATE_INCREASE_KBPS_PER_SECOND)),
             Math.max(1.1, node.node("spike-multiplier").getDouble(Defaults.RATE_SPIKE_MULTIPLIER)),
             Math.max(1, node.node("jitter-threshold-ms").getInt(Defaults.RATE_JITTER_THRESHOLD_MS)),
-            ladder.length == 0 ? new int[] { def } : ladder);
+            ladder.length == 0 ? new int[] { def } : ladder,
+            Math.max(0, node.node("global-max-kbps").getInt(Defaults.RATE_GLOBAL_MAX_KBPS)));
     }
 }

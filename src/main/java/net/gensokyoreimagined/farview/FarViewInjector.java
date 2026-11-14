@@ -18,7 +18,7 @@ final class FarViewInjector {
             player.getWorld().getKey(), player.getSendViewDistance(),
             plugin.settings().rate());
 
-        channel.pipeline().addFirst(FarViewWireMeter.NAME, new FarViewWireMeter(session));
+        channel.pipeline().addFirst(FarViewWireMeter.NAME, new FarViewWireMeter(session, plugin.globalTokens()));
         nms.inject(channel, session);
         return session;
     }

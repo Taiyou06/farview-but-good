@@ -28,13 +28,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 
 public final class FarViewPlugin extends JavaPlugin {
     private static final long TICK_MS = 50L;
+    private static final long MAX_DEBT_TICKS = 2000L / TICK_MS;
 
     private final Map<UUID, FarViewSession> sessions = new ConcurrentHashMap<>();
     private final Map<NamespacedKey, ChunkSource> sources = new ConcurrentHashMap<>();
+    private final AtomicLong globalTokens = new AtomicLong();
 
     private FarViewNms nms;
     private Logger logger;
@@ -51,6 +54,7 @@ public final class FarViewPlugin extends JavaPlugin {
     FarViewSettings settings() { return settings; }
     FarViewPreferences preferences() { return preferences; }
     FarViewNms nms() { return nms; }
+    AtomicLong globalTokens() { return globalTokens; }
 
     @Override
     public void onEnable() {
@@ -243,8 +247,11 @@ public final class FarViewPlugin extends JavaPlugin {
     private void tick() {
         FarViewSettings current = settings;
         if (current == null) return;
+        long refill = current.rate().globalMaxKbps() * 1024L * TICK_MS / 1000L;
+        long tokens = globalTokens.updateAndGet(t -> Math.clamp(t + refill, -refill * MAX_DEBT_TICKS, refill));
+        boolean underGlobalCap = refill == 0 || tokens > 0;
         for (FarViewSession session : sessions.values()) {
-            session.execute(() -> session.pump(current));
+            session.execute(() -> session.pump(current, underGlobalCap));
         }
     }
 

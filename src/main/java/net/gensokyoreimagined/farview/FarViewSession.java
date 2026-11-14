@@ -54,6 +54,7 @@ final class FarViewSession implements SessionHooks {
     private final Long2ObjectOpenHashMap<short[]> faces = new Long2ObjectOpenHashMap<>();
     private final Long2IntOpenHashMap ready = new Long2IntOpenHashMap();
     private final LongOpenHashSet resend = new LongOpenHashSet();
+    private final LongOpenHashSet deferred = new LongOpenHashSet();
     private final LongOpenHashSet building = new LongOpenHashSet();
     private final LongArrayList pending = new LongArrayList();
     private int cursor;
@@ -165,6 +166,7 @@ final class FarViewSession implements SessionHooks {
         long key = Chunk.getChunkKey(chunkX, chunkZ);
         serverChunks.add(key);
         attempted.remove(key);
+        deferred.remove(key);
         sent.remove(key);
         ready.remove(key);
         resend.remove(key);
@@ -179,6 +181,7 @@ final class FarViewSession implements SessionHooks {
             return false;
         }
         attempted.add(key);
+        deferred.remove(key);
         sent.put(key, ALL_SECTIONS);
         return true;
     }
@@ -330,7 +333,11 @@ final class FarViewSession implements SessionHooks {
                 faces.put(key, prepared.faces());
                 generation++;
             }
-            if (serverChunks.contains(key) || serverSends(chunkX(key), chunkZ(key)) || sent.containsKey(key)) return;
+            if (serverChunks.contains(key) || sent.containsKey(key)) return;
+            if (serverSends(chunkX(key), chunkZ(key))) {
+                deferred.add(key);
+                return;
+            }
             ready.put(key, generation);
         });
     }
@@ -392,6 +399,7 @@ final class FarViewSession implements SessionHooks {
         pending.clear();
         ready.clear();
         resend.clear();
+        deferred.clear();
         cursor = 0;
         needsRebuild = true;
     }
@@ -406,7 +414,17 @@ final class FarViewSession implements SessionHooks {
         pruneOutOfRange(resend);
         pruneOutOfRange(faces.keySet());
         pruneOutOfRange(ready.keySet());
+        pruneOutOfRange(deferred);
         forgetFarChunks(false);
+
+        LongIterator held = deferred.iterator();
+        while (held.hasNext()) {
+            long key = held.nextLong();
+            if (!serverSends(chunkX(key), chunkZ(key))) {
+                held.remove();
+                ready.put(key, generation);
+            }
+        }
 
         for (long offset : spiral(fakeRadius)) {
             int dx = (int) ((offset >> 20) & 0xFFFFF) - SPIRAL_BIAS;

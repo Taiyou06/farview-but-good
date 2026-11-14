@@ -2,8 +2,8 @@ package net.gensokyoreimagined.farview;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
+import it.unimi.dsi.fastutil.longs.Long2IntLinkedOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -52,7 +52,7 @@ final class FarViewSession implements SessionHooks {
     private final LongOpenHashSet attempted = new LongOpenHashSet();
     private final Long2ObjectOpenHashMap<long[]> sent = new Long2ObjectOpenHashMap<>();
     private final Long2ObjectOpenHashMap<short[]> faces = new Long2ObjectOpenHashMap<>();
-    private final Long2IntOpenHashMap ready = new Long2IntOpenHashMap();
+    private final Long2IntLinkedOpenHashMap ready = new Long2IntLinkedOpenHashMap();
     private final LongOpenHashSet resend = new LongOpenHashSet();
     private final LongOpenHashSet deferred = new LongOpenHashSet();
     private final LongOpenHashSet building = new LongOpenHashSet();
@@ -216,16 +216,6 @@ final class FarViewSession implements SessionHooks {
 
         if (!underGlobalCap) return;
         int builds = Math.min(settings.chunksPerTick(), settings.maxInFlight() - inFlight.get());
-        LongIterator again = resend.iterator();
-        while (builds > 0 && again.hasNext() && quality.hasTokens()) {
-            long key = again.nextLong();
-            if (building.contains(key)) continue;
-            again.remove();
-            if (!sent.containsKey(key)) continue;
-            build(key, realSections(key, sent.get(key)));
-            builds--;
-        }
-
         ObjectIterator<Long2IntMap.Entry> waiting = ready.long2IntEntrySet().fastIterator();
         while (builds > 0 && waiting.hasNext() && quality.hasTokens()) {
             Long2IntMap.Entry entry = waiting.next();
@@ -234,6 +224,16 @@ final class FarViewSession implements SessionHooks {
             if (culling && !tracedSince(key, entry.getIntValue())) continue;
             waiting.remove();
             build(key, realSections(key, null));
+            builds--;
+        }
+
+        LongIterator again = resend.iterator();
+        while (builds > 0 && again.hasNext() && quality.hasTokens()) {
+            long key = again.nextLong();
+            if (building.contains(key)) continue;
+            again.remove();
+            if (!sent.containsKey(key)) continue;
+            build(key, realSections(key, sent.get(key)));
             builds--;
         }
     }
